@@ -1,4 +1,4 @@
-package com.Onepipe;
+package com.onepipe;
 
 import junit.framework.Test;
 import junit.framework.TestCase;
