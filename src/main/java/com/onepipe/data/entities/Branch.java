@@ -39,7 +39,6 @@ public class Branch extends BaseEntity {
     @Column(unique = true)
     private String transactionRef;
 
-    private String merchantId;
-
+    private String billerCode;
 
 }

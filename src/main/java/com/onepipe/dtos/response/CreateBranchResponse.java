@@ -13,7 +13,7 @@ public class CreateBranchResponse {
     private Long id;
     private String businessName;
     private String branchCode;
-    private String merchantId;
+    private String billerCode;
     private String adminEmail;
     private String contactPersonName;
 }

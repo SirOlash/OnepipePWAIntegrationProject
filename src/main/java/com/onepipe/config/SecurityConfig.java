@@ -31,6 +31,8 @@ public class SecurityConfig {
 
                         .requestMatchers(new AntPathRequestMatcher("/api/auth/**")).permitAll()
 
+                        .requestMatchers(new AntPathRequestMatcher("/api/students/register")).permitAll()
+                        .requestMatchers(new AntPathRequestMatcher("/api/webhooks/**")).permitAll()
                         .anyRequest().authenticated()
                 )
                 .headers(headers -> headers.frameOptions(frame -> frame.disable()))

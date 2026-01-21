@@ -21,7 +21,8 @@ public class Parent extends BaseEntity{
     @Enumerated(EnumType.STRING)
     private Title title;
 
-    private String fullName;
+    private String firstName;
+    private String surname;
     private String phoneNumber;
 
     private String bankAccountNumber;

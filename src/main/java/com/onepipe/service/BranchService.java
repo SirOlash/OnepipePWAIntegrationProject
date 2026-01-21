@@ -45,7 +45,7 @@ public class BranchService {
         String myRequestRef = UUID.randomUUID().toString();
         String myTransactionRef = "TXN-" + System.currentTimeMillis();
 
-        String onePipeMerchantId = onePipeClient.createMerchant(request, myTransactionRef);
+        String onePipeBillerCode = onePipeClient.createMerchant(request, myTransactionRef);
 
         Branch newBranch = Branch.builder()
                 .adminUser(savedAdmin)
@@ -62,7 +62,7 @@ public class BranchService {
                 .settlementBankCode(request.getSettlementBankCode())
                 .requestRef(myRequestRef)
                 .transactionRef(myTransactionRef)
-                .merchantId(onePipeMerchantId)
+                .billerCode(onePipeBillerCode)
                 .build();
 
         Branch savedBranch = branchRepository.save(newBranch);
@@ -84,7 +84,7 @@ public class BranchService {
         return CreateBranchResponse.builder()
                 .id(branch.getId())
                 .businessName(branch.getBusinessName())
-                .merchantId(branch.getMerchantId())
+                .billerCode(branch.getBillerCode())
                 .branchCode(branch.getBusinessShortName()) // Added this based on your DTO
                 .adminEmail(branch.getAdminUser().getEmail())
                 .contactPersonName(branch.getContactFirstName() + " " + branch.getContactSurname())

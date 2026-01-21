@@ -54,7 +54,7 @@ public class AuthService {
         } else if (user.getRole() == Role.PARENT) {
             Parent parent = parentRepository.findByUser(user).orElse(null);
             if (parent != null) {
-                name = parent.getFullName();
+                name = parent.getSurname() + ", " + parent.getFirstName();
             }
         }
 
