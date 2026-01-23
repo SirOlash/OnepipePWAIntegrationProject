@@ -7,6 +7,6 @@ import com.onepipe.integration.dto.OnePipeResponse;
 
 public interface OnepipeClient {
     String createMerchant(CreateBranchRequest requestDetails, String transactionRef);
-
+    boolean cancelMandate(Payment payment);
     OnePipeResponse sendInvoice(OnePipeInvoiceRequest request);
 }

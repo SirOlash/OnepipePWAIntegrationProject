@@ -50,15 +50,18 @@ public class WebhookService {
 
             payment.setCompletedPayments(newCount);
 
-            if (newCount >= payment.getNumberOfPayments()) {
+            int totalExpectedTransactions = payment.getNumberOfPayments() + 1;
+
+            if (newCount >= totalExpectedTransactions) {
                 payment.setStatus(PaymentStatus.SUCCESSFUL);
             } else {
-                payment.setStatus(PaymentStatus.PENDING);
+                payment.setStatus(PaymentStatus.ACTIVE);
             }
         }
 
         else if (payment.getPaymentType() == PaymentType.SUBSCRIPTION) {
-            payment.setStatus(PaymentStatus.SUCCESSFUL);
+            payment.setCompletedPayments((payment.getCompletedPayments() == null ? 0 : payment.getCompletedPayments()) + 1);
+            payment.setStatus(PaymentStatus.ACTIVE);
         }
     }
 }

@@ -47,7 +47,11 @@ public class StudentService {
 
         Parent parent = parentRepository.findByPhoneNumber(request.getParentPhoneNumber())
                 .or(() -> parentRepository.findByUser_Email(request.getParentEmail()))
-                .orElseGet(() -> createNewParent(request));
+                .orElse(null);
+
+        if (parent == null) {
+            parent = createSafeParent(request);
+        }
 
         String regId = generateStudentId(branch.getBusinessShortName());
 
@@ -76,26 +80,29 @@ public class StudentService {
                 .build();
     }
 
-    private Parent createNewParent(RegisterStudentRequest request) {
-        User parentUser = User.builder()
-                .email(request.getParentEmail())
-                .password(passwordEncoder.encode(request.getParentPassword()))
-                .role(Role.PARENT)
-                .build();
+    private Parent createSafeParent(RegisterStudentRequest request) {
+        User user = userRepository.findByEmail(request.getParentEmail()).orElse(null);
+        if (user == null) {
+            user = User.builder()
+                    .email(request.getParentEmail())
+                    .password(passwordEncoder.encode(request.getParentPassword()))
+                    .role(Role.PARENT)
+                    .build();
+            user = userRepository.save(user);
+        }
+            Parent parent = Parent.builder()
+                    .user(user)
+                    .title(request.getParentTitle())
+                    .firstName(request.getParentFirstName())
+                    .surname(request.getParentSurname())
+                    .phoneNumber(request.getParentPhoneNumber())
+                    .bankAccountNumber(request.getBankAccountNumber())
+                    .bankCode(request.getBankCode())
+                    .build();
 
-        userRepository.save(parentUser);
+            return parentRepository.save(parent);
+        }
 
-        Parent parent = Parent.builder()
-                .user(parentUser)
-                .title(request.getParentTitle())
-                .firstName(request.getParentFirstName())
-                .surname(request.getParentSurname())
-                .phoneNumber(request.getParentPhoneNumber())
-                .bankAccountNumber(request.getBankAccountNumber())
-                .bankCode(request.getBankCode())
-                .build();
-        return parentRepository.save(parent);
-    }
     private String generateStudentId(String branchCode) {
         // Logic: BRANCH_CODE / YEAR / RANDOM_4_DIGITS
         // Example: GRN-IKJ/2024/4921

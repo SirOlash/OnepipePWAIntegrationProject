@@ -13,6 +13,7 @@ import com.onepipe.integration.dto.OnePipeInvoiceRequest;
 import com.onepipe.integration.dto.OnePipeResponse;
 import com.onepipe.utils.EncryptionUtil;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +31,9 @@ public class PaymentService {
     private final OnepipeClient onePipeClient;
     private final StudentRepository studentRepository;
 
+    @Value("${onepipe.client-secret}")
+    private String clientSecret;
+
     // --- 1. Called when a Student Registers ---
     @Transactional
     public Payment createInitialSchoolFeesPayment(Student student) {
@@ -46,7 +50,6 @@ public class PaymentService {
                 .completedPayments(0)
                 .description("School Fees for " + student.getClassGrade().name());
 
-        // Generate Refs
         String requestRef = UUID.randomUUID().toString();
         String transactionRef = "SCH-" + System.currentTimeMillis();
 
@@ -153,7 +156,7 @@ public class PaymentService {
             auth.setType("bank.account");
             auth.setSecure(EncryptionUtil.encryptTripleDES(
                     payment.getParent().getBankAccountNumber() + ";" + payment.getParent().getBankCode(),
-                    "yourSecretKey"
+                    clientSecret
             ));
         }
         request.setAuth(auth);
@@ -166,7 +169,7 @@ public class PaymentService {
         if (isDemoMode) {
             tx.setAmount(new BigDecimal("10000.00"));
         } else {
-            tx.setAmount(payment.getTotalAmount());
+            tx.setAmount(payment.getTotalAmount().multiply(new BigDecimal("100")));
         }
 
 
@@ -195,7 +198,7 @@ public class PaymentService {
                     meta.setDownPayment(new BigDecimal("2000.00"));
                     meta.setRepeatFrequency("daily");
                 } else {
-                    meta.setDownPayment(payment.getDownPaymentAmount());
+                    meta.setDownPayment(payment.getDownPaymentAmount().multiply(new BigDecimal("100")));
                     meta.setRepeatFrequency(payment.getInstallmentFrequency().name().toLowerCase());
                 }
                 meta.setRepeatStartDate(calculateStartDate(payment));
@@ -205,11 +208,13 @@ public class PaymentService {
                 meta.setType("subscription");
                 if (isDemoMode) {
                     meta.setRepeatFrequency("daily");
+                    meta.setRepeatStartDate(formatDate(LocalDateTime.now().plusDays(1)));
+                    meta.setRepeatEndDate(formatDate(LocalDateTime.now().plusDays(3)));
                 } else {
-                    meta.setRepeatFrequency(payment.getInstallmentFrequency().name().toLowerCase());
+                    meta.setRepeatFrequency("monthly");
+                    meta.setRepeatStartDate(formatDate(LocalDateTime.now().plusMonths(3)));
+                    meta.setRepeatEndDate(formatDate(LocalDateTime.now().plusMonths(9)));
                 }
-                meta.setRepeatStartDate(calculateStartDate(payment));
-                meta.setRepeatEndDate(calculateEndDate(payment));
                 break;
         }
         tx.setMeta(meta);
@@ -219,6 +224,14 @@ public class PaymentService {
         OnePipeResponse response = onePipeClient.sendInvoice(request);
 
         payment.setVirtualAccountNumber(response.getVirtualAccountNumber());
+        payment.setVirtualAccountName(response.getVirtualAccountName());
+        payment.setVirtualAccountBankName(response.getVirtualAccountBankName());
+        payment.setVirtualAccountBankCode(response.getVirtualAccountBankCode());
+        payment.setVirtualAccountExpiryDate(response.getVirtualAccountExpiryDate());
+
+        payment.setCustomerAccountNumber(response.getCustomerAccountNumber());
+        payment.setOnePipeReference(response.getReference());
+
         payment.setOnePipePaymentId(response.getPaymentId());
         paymentRepository.save(payment);
     }
@@ -244,18 +257,26 @@ public class PaymentService {
         }
     }
 
-    private String calculateEndDate(Payment payment) {
-        LocalDateTime start = LocalDateTime.now();
+    @Transactional
+    public void cancelSubscription(Long paymentId) {
+        Payment payment = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new RuntimeException("Payment record not found"));
 
-        switch (payment.getInstallmentFrequency()) {
-            case DAILY:
-                return formatDate(start.plusDays(payment.getNumberOfPayments()));
-            case WEEKLY:
-                return formatDate(start.plusWeeks(payment.getNumberOfPayments()));
-            case MONTHLY:
-                return formatDate(start.plusMonths(payment.getNumberOfPayments()));
-            default:
-                return formatDate(start.plusDays(payment.getNumberOfPayments()));
+        if (payment.getPaymentType() != PaymentType.SUBSCRIPTION) {
+            throw new RuntimeException("Only Subscriptions can be cancelled");
+        }
+
+        if (payment.getStatus() == PaymentStatus.CANCELLED) {
+            throw new RuntimeException("Subscription is already cancelled");
+        }
+
+        boolean success = onePipeClient.cancelMandate(payment);
+
+        if (success) {
+            payment.setStatus(PaymentStatus.CANCELLED);
+            paymentRepository.save(payment);
+        } else {
+            throw new RuntimeException("OnePipe failed to process cancellation");
         }
     }
 }
