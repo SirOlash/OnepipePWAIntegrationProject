@@ -63,11 +63,11 @@ public class OnePipeMerchantRequest {
     public static class Customer {
         @JsonProperty("customer_ref")
         private String customerRef;
-        @JsonProperty("mobile_no")
-        private String mobileNo;
         private String firstname;
         private String surname;
         private String email;
+        @JsonProperty("mobile_no")
+        private String mobileNo;
     }
 
     @Data
@@ -107,13 +107,13 @@ public class OnePipeMerchantRequest {
         private String settlementBankCode;
 
         // tin in your entity maps to tax_id here
-        @JsonProperty("tax_id")
+        @JsonProperty("tin")
         private String taxId;
 
-        @JsonProperty("address_line_1")
+        @JsonProperty("address")
         private String address;
 
-        @JsonProperty("notification_phone")
+        @JsonProperty("notification_phone_number")
         private String notificationPhone;
         @JsonProperty("notification_email")
         private String notificationEmail;

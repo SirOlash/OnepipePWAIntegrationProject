@@ -45,7 +45,7 @@ public class BranchService {
         String myRequestRef = UUID.randomUUID().toString();
         String myTransactionRef = "TXN-" + System.currentTimeMillis();
 
-        String onePipeBillerCode = onePipeClient.createMerchant(request, myTransactionRef);
+        String onePipeBillerCode = onePipeClient.createMerchant(request, myTransactionRef, myRequestRef);
 
         Branch newBranch = Branch.builder()
                 .adminUser(savedAdmin)
@@ -58,6 +58,7 @@ public class BranchService {
                 .contactSurname(request.getContactSurname())
                 .contactEmail(request.getAdminEmail())
                 .contactPhoneNumber(request.getContactPhoneNumber())
+                .whatsappNumber(request.getWhatsappNumber())
                 .settlementAccountNumber(request.getSettlementAccountNumber())
                 .settlementBankCode(request.getSettlementBankCode())
                 .requestRef(myRequestRef)
@@ -85,8 +86,10 @@ public class BranchService {
                 .id(branch.getId())
                 .businessName(branch.getBusinessName())
                 .billerCode(branch.getBillerCode())
-                .branchCode(branch.getBusinessShortName()) // Added this based on your DTO
+                .branchCode(branch.getBusinessShortName())
+                .address(branch.getBusinessAddress())
                 .adminEmail(branch.getAdminUser().getEmail())
+                .phoneNumber(branch.getWhatsappNumber())
                 .contactPersonName(branch.getContactFirstName() + " " + branch.getContactSurname())
                 .build();
     }

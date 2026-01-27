@@ -21,13 +21,11 @@ public class OnePipeResponse {
     private String customerAccountNumber; // for installment and subscription, the customer must transfer from this account
     private String customerEmail;
 
-    private String paymentId;           // From meta.payment_id
-    private String subscriptionId;
-    private String requestRef;
-    private String transactionRef;
-    private String reference;
+    private String paymentId;
+//    private String reference;
 
     private String status;
     private String message;
     private String createdOn;
+    private String virtualAccountQrCodeUrl;
 }

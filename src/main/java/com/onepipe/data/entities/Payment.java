@@ -61,8 +61,6 @@ public class Payment extends BaseEntity {
 
     private String onePipePaymentId;
 
-    private String subscriptionId;
-
     private String virtualAccountNumber;
     private String virtualAccountName;
     private String virtualAccountBankName;
@@ -70,4 +68,6 @@ public class Payment extends BaseEntity {
     private String onePipeReference;
     private String customerAccountNumber;
     private String virtualAccountExpiryDate;
+    @Column(columnDefinition = "TEXT")
+    private String virtualAccountQrCodeUrl;
 }

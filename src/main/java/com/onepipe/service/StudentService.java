@@ -1,10 +1,8 @@
 package com.onepipe.service;
 
 
-import com.onepipe.data.entities.Branch;
-import com.onepipe.data.entities.Parent;
-import com.onepipe.data.entities.Student;
-import com.onepipe.data.entities.User;
+import com.onepipe.data.entities.*;
+import com.onepipe.data.enums.PaymentCategory;
 import com.onepipe.data.enums.PaymentType;
 import com.onepipe.data.enums.Role;
 import com.onepipe.data.repositories.BranchRepository;
@@ -12,14 +10,20 @@ import com.onepipe.data.repositories.ParentRepository;
 import com.onepipe.data.repositories.StudentRepository;
 import com.onepipe.data.repositories.UserRepository;
 import com.onepipe.dtos.request.RegisterStudentRequest;
+import com.onepipe.dtos.response.BranchStudentDto;
+import com.onepipe.dtos.response.ParentStudentDto;
 import com.onepipe.dtos.response.RegisterStudentResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Year;
+import java.util.List;
 import java.util.Random;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -70,13 +74,25 @@ public class StudentService {
 
         studentRepository.save(student);
 
-        paymentService.createInitialSchoolFeesPayment(student);
+        Payment payment = paymentService.createInitialSchoolFeesPayment(student);
 
         return RegisterStudentResponse.builder()
                 .studentRegId(regId)
                 .studentName(student.getFirstName() + " " + student.getSurname())
                 .parentName(parent.getFirstName() + " " + parent.getSurname())
                 .message("Registration Successful! Check email for details.")
+
+                .paymentDetails(RegisterStudentResponse.PaymentDetails.builder()
+                        .amount(payment.getTotalAmount())
+                        .downPayment(payment.getDownPaymentAmount())
+                        .bankName(payment.getVirtualAccountBankName())
+                        .accountName(payment.getVirtualAccountName())
+                        .accountNumber(payment.getVirtualAccountNumber())
+                        .paymentType(payment.getPaymentType().name())
+                        .expiryDate(payment.getVirtualAccountExpiryDate())
+                        .customerAccountNumber(payment.getCustomerAccountNumber())
+                        .qrCodeImage(payment.getVirtualAccountQrCodeUrl())
+                        .build())
                 .build();
     }
 
@@ -109,4 +125,67 @@ public class StudentService {
         int randomNum = 1000 + new Random().nextInt(9000);
         return branchCode + "/" + Year.now().getValue() + "/" + randomNum;
     }
+
+    public List<BranchStudentDto> getStudentsByBranch(Long branchId) {
+        Branch branch = branchRepository.findById(branchId)
+                .orElseThrow(() -> new RuntimeException("Branch not found"));
+
+        return studentRepository.findByBranch(branch).stream()
+                .map(student -> {
+                    List<Payment> payments = paymentService.getPaymentsForStudent(student);
+
+                    String status = determineStudentStatus(payments);
+                    return BranchStudentDto.builder()
+                            .id(student.getId())
+                            .firstName(student.getFirstName())
+                            .surname(student.getSurname())
+                            .classGrade(student.getClassGrade())
+                            .parentFullName(student.getParent().getTitle() + " " + student.getParent().getFirstName() + " " + student.getParent().getSurname())
+                            .parentEmail(student.getParent().getUser().getEmail())
+                            .paymentType(student.getPreferredPaymentType())
+                            .status(status)
+                            .build();
+                })
+                .collect(Collectors.toList());
+    }
+
+    private String determineStudentStatus(List<Payment> payments) {
+        // Filter for the main School Fees payment
+        return payments.stream()
+                .filter(p -> p.getCategory() == PaymentCategory.SCHOOL_FEES)
+                .findFirst()
+                .map(p -> p.getStatus().name()) // Returns PENDING, ACTIVE, SUCCESSFUL, etc.
+                .orElse("NO PAYMENT");
+    }
+
+    public List<ParentStudentDto> getStudentsByParentEmail(String parentEmail) {
+        Parent parent = parentRepository.findByUser_Email(parentEmail)
+                .orElseThrow(() -> new RuntimeException("Parent not found with email: " + parentEmail));
+
+        return studentRepository.findByParent(parent).stream()
+                .map(student -> {
+                    // 1. Get School Fees Payment
+                    Payment feePayment = paymentService.getSchoolFeesPayment(student);
+
+                    String status = "NO RECORD";
+                    BigDecimal pending = BigDecimal.ZERO;
+
+                    if (feePayment != null) {
+                        status = feePayment.getStatus().name();
+                        pending = paymentService.calculatePendingAmount(feePayment);
+                    }
+
+                    return ParentStudentDto.builder()
+                            .id(student.getId())
+                            .firstName(student.getFirstName())
+                            .surname(student.getSurname())
+                            .classGrade(student.getClassGrade())
+                            .status(status)
+                            .pendingAmount(pending)
+                            .build();
+                })
+                .collect(Collectors.toList());
+    }
+
+
 }

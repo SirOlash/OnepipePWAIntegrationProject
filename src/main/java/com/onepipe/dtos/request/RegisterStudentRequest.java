@@ -19,7 +19,6 @@ public class RegisterStudentRequest {
     private Long branchId;
     private String firstName;
     private String surname;
-    private String parentPassword;
     private LocalDate dateOfBirth;
     private ClassGrade classGrade;
 
@@ -27,6 +26,7 @@ public class RegisterStudentRequest {
     private String parentFirstName;
     private String parentSurname;
     private String parentEmail;
+    private String parentPassword;
     private String parentPhoneNumber;
 
     private PaymentType paymentType;

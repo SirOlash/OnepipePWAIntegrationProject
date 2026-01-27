@@ -1,5 +1,6 @@
 package com.onepipe.integration;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.onepipe.data.entities.Payment;
 import com.onepipe.dtos.request.CreateBranchRequest;
 import com.onepipe.integration.dto.OnePipeCancelRequest;
@@ -15,7 +16,9 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
 import java.util.UUID;
@@ -41,7 +44,12 @@ public class RealOnePipeClient implements OnepipeClient {
         String url = baseUrl + "/transact";
 
         // 1. Generate Signature: MD5(request_ref;client_secret)
-        String signature = EncryptionUtil.generateSignature(request.getRequestRef(), clientSecret);
+        String safeRequestRef = request.getRequestRef().trim();
+        String safeSecret = clientSecret.trim();
+
+        request.setRequestRef(safeRequestRef);
+
+        String signature = EncryptionUtil.generateSignature(safeRequestRef, safeSecret);
 
         // 2. Set Headers
         HttpHeaders headers = new HttpHeaders();
@@ -51,7 +59,6 @@ public class RealOnePipeClient implements OnepipeClient {
 
         HttpEntity<OnePipeInvoiceRequest> entity = new HttpEntity<>(request, headers);
 
-        System.out.println(">>> CALLING ONEPIPE (Real): " + url);
 
         try {
             // 4. Send POST
@@ -59,10 +66,34 @@ public class RealOnePipeClient implements OnepipeClient {
             ResponseEntity<Map> responseEntity = restTemplate.postForEntity(url, entity, Map.class);
             Map<String, Object> body = responseEntity.getBody();
 
+            System.out.println(">>> ONEPIPE RAW RESPONSE: " + body);
+
+            if (body == null) {
+                throw new RuntimeException("OnePipe returned empty body");
+            }
+
+            String status = (String) body.get("status");
+            if (!"Successful".equalsIgnoreCase(status) && !"Processing".equalsIgnoreCase(status)) {
+                String msg = (String) body.get("message");
+                throw new RuntimeException("OnePipe Error: " + msg);
+            }
+
             // 5. Extract Data from Response
             // Navigate: data -> provider_response -> meta -> virtual_account_number
             Map<String, Object> data = (Map<String, Object>) body.get("data");
+
+            if (data == null) {
+                throw new RuntimeException("OnePipe Error: Data field is missing");
+            }
+
             Map<String, Object> providerResp = (Map<String, Object>) data.get("provider_response");
+
+            if (providerResp == null) {
+                // Sometimes errors are inside 'data' but not in 'provider_response'
+                Object innerError = data.get("error");
+                throw new RuntimeException("Provider Response is null. Inner Error: " + innerError);
+            }
+
             Map<String, Object> meta = (Map<String, Object>) providerResp.get("meta");
 
             return OnePipeResponse.builder()
@@ -70,16 +101,13 @@ public class RealOnePipeClient implements OnepipeClient {
                     .message((String) body.get("message"))
 
                     .paymentId(String.valueOf(meta.get("payment_id")))
-                    .requestRef(request.getRequestRef())
-                    .transactionRef(request.getTransaction().getTransactionRef())
-                    .reference((String) providerResp.get("reference"))
-                    .subscriptionId((String) meta.get("activation_url"))
 
                     .virtualAccountNumber((String) meta.get("virtual_account_number"))
                     .virtualAccountName((String) meta.get("virtual_account_name"))
                     .virtualAccountBankName((String) meta.get("virtual_account_bank_name"))
                     .virtualAccountBankCode((String) meta.get("virtual_account_bank_code"))
                     .virtualAccountExpiryDate((String) meta.get("virtual_account_expiry_date"))
+                    .virtualAccountQrCodeUrl((String) meta.get("virtual_account_qr_code_url"))
 
                     .customerAccountNumber((String) providerResp.get("account_number"))
                     .customerEmail((String) providerResp.get("customer_email"))
@@ -92,10 +120,8 @@ public class RealOnePipeClient implements OnepipeClient {
     }
 
     @Override
-    public String createMerchant(CreateBranchRequest requestDetails, String transactionRef) {
+    public String createMerchant(CreateBranchRequest requestDetails, String transactionRef, String requestRef) {
         String url = baseUrl + "/transact";
-        String requestRef = UUID.randomUUID().toString();
-
         OnePipeMerchantRequest request = OnePipeMerchantRequest.builder()
                 .requestRef(requestRef)
                 .auth(OnePipeMerchantRequest.Auth.builder().build()) // Use defaults
@@ -112,7 +138,7 @@ public class RealOnePipeClient implements OnepipeClient {
                         .meta(OnePipeMerchantRequest.Meta.builder()
                                 .webhookUrl("https://your-app-url.com/api/webhooks/onepipe") // TODO Update it
                                 .whatsappContactName(requestDetails.getContactFirstName())
-                                .whatsappContactNo(requestDetails.getContactPhoneNumber())
+                                .whatsappContactNo(requestDetails.getWhatsappNumber())
                                 .businessShortName(requestDetails.getBusinessShortName())
                                 .build())
                         .details(OnePipeMerchantRequest.Details.builder()
@@ -123,7 +149,7 @@ public class RealOnePipeClient implements OnepipeClient {
                                 .settlementBankCode(requestDetails.getSettlementBankCode())
                                 .taxId(requestDetails.getTin())
                                 .address(requestDetails.getAddress())
-                                .notificationPhone(requestDetails.getContactPhoneNumber())
+                                .notificationPhone(requestDetails.getWhatsappNumber())
                                 .notificationEmail(requestDetails.getAdminEmail())
                                 .build())
                         .build())
@@ -154,9 +180,14 @@ public class RealOnePipeClient implements OnepipeClient {
                 throw new RuntimeException("OnePipe Merchant Creation Failed: " + body.get("message"));
             }
 
-        } catch (Exception e) {
+        } catch (HttpClientErrorException e) {
             e.printStackTrace();
-            throw new RuntimeException("API Call Failed: " + e.getMessage());
+//            throw new RuntimeException("API Call Failed: " + e.getMessage());
+            throw new ResponseStatusException(
+                    e.getStatusCode(),
+                    e.getResponseBodyAsString()
+            );
+
         }
     }
 

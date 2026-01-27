@@ -1,13 +1,17 @@
 package com.onepipe.service;
 
+import com.onepipe.data.entities.Branch;
 import com.onepipe.data.entities.Payment;
 import com.onepipe.data.entities.Student;
-import com.onepipe.data.enums.InstallmentFrequency;
 import com.onepipe.data.enums.PaymentStatus;
 import com.onepipe.data.enums.PaymentType;
 import com.onepipe.data.enums.PaymentCategory;
+import com.onepipe.data.repositories.BranchRepository;
 import com.onepipe.data.repositories.PaymentRepository;
 import com.onepipe.data.repositories.StudentRepository;
+import com.onepipe.dtos.response.BranchPaymentDto;
+import com.onepipe.dtos.response.ParentPaymentDto;
+import com.onepipe.dtos.response.RegisterStudentResponse;
 import com.onepipe.integration.OnepipeClient;
 import com.onepipe.integration.dto.OnePipeInvoiceRequest;
 import com.onepipe.integration.dto.OnePipeResponse;
@@ -21,7 +25,10 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -30,6 +37,7 @@ public class PaymentService {
     private final PaymentRepository paymentRepository;
     private final OnepipeClient onePipeClient;
     private final StudentRepository studentRepository;
+    private final BranchRepository branchRepository;
 
     @Value("${onepipe.client-secret}")
     private String clientSecret;
@@ -76,16 +84,17 @@ public class PaymentService {
         }
 
         Payment payment = builder.build();
-        payment = paymentRepository.save(payment);
+        paymentRepository.save(payment);
 
         // --- Trigger OnePipe (Mock or Real) ---
-        initiatePaymentRequest(payment);
 
-        return payment;
+        return initiatePaymentRequest(payment);
+
+
     }
 
     @Transactional
-    public Payment triggerNewPayment(Long studentId,
+    public RegisterStudentResponse triggerNewPayment(Long studentId,
                                      PaymentCategory category,
                                      BigDecimal amount,
                                      PaymentType paymentType,
@@ -134,14 +143,32 @@ public class PaymentService {
         payment = paymentRepository.save(payment);
 
         // Trigger OnePipe invoice
-        initiatePaymentRequest(payment);
+        Payment completedPayment = initiatePaymentRequest(payment);
 
-        return payment;
+        return RegisterStudentResponse.builder()
+                .studentRegId(student.getStudentRegId())
+                .studentName(student.getFirstName() + " " + student.getSurname())
+                .parentName(student.getParent().getFirstName() + " " + student.getParent().getSurname())
+                .message("Invoice successfully created!!! Check email for details.")
+
+                .paymentDetails(RegisterStudentResponse.PaymentDetails.builder()
+                        .amount(completedPayment.getTotalAmount())
+                        .downPayment(completedPayment.getDownPaymentAmount())
+                        .bankName(completedPayment.getVirtualAccountBankName())
+                        .accountName(completedPayment.getVirtualAccountName())
+                        .accountNumber(completedPayment.getVirtualAccountNumber())
+                        .paymentType(completedPayment.getPaymentType().name())
+                        .expiryDate(completedPayment.getVirtualAccountExpiryDate())
+                        .customerAccountNumber(completedPayment.getCustomerAccountNumber())
+                        .qrCodeImage(completedPayment.getVirtualAccountQrCodeUrl())
+                        .build())
+                .build();
+
     }
 
 
     // --- 2. Centralized Method to Call API ---
-    public void initiatePaymentRequest(Payment payment) {
+    public Payment initiatePaymentRequest(Payment payment) {
 
         boolean isDemoMode = true; // TOGGLE THIS FOR DEMO
 
@@ -166,11 +193,11 @@ public class PaymentService {
         tx.setTransactionRef(payment.getTransactionRef());
         tx.setTransactionDesc(payment.getDescription());
         tx.setTransactionRefParent(null);
-        if (isDemoMode) {
-            tx.setAmount(new BigDecimal("10000.00"));
-        } else {
-            tx.setAmount(payment.getTotalAmount().multiply(new BigDecimal("100")));
-        }
+
+        tx.setDetails(new HashMap<>());
+
+        BigDecimal amountInKobo = payment.getTotalAmount().multiply(new BigDecimal("100"));
+        tx.setAmount(amountInKobo.setScale(0, RoundingMode.HALF_UP));
 
 
         // --- Customer ---
@@ -195,7 +222,7 @@ public class PaymentService {
             case INSTALLMENT:
                 meta.setType("instalment");
                 if (isDemoMode) {
-                    meta.setDownPayment(new BigDecimal("2000.00"));
+                    meta.setDownPayment(new BigDecimal("20000"));
                     meta.setRepeatFrequency("daily");
                 } else {
                     meta.setDownPayment(payment.getDownPaymentAmount().multiply(new BigDecimal("100")));
@@ -212,14 +239,15 @@ public class PaymentService {
                     meta.setRepeatEndDate(formatDate(LocalDateTime.now().plusDays(3)));
                 } else {
                     meta.setRepeatFrequency("monthly");
-                    meta.setRepeatStartDate(formatDate(LocalDateTime.now().plusMonths(3)));
-                    meta.setRepeatEndDate(formatDate(LocalDateTime.now().plusMonths(9)));
+                    meta.setRepeatStartDate(formatDate(LocalDateTime.now().plusMonths(1)));
+                    meta.setRepeatEndDate(formatDate(LocalDateTime.now().plusMonths(3)));
                 }
                 break;
         }
         tx.setMeta(meta);
 
         request.setTransaction(tx);
+
 
         OnePipeResponse response = onePipeClient.sendInvoice(request);
 
@@ -230,10 +258,12 @@ public class PaymentService {
         payment.setVirtualAccountExpiryDate(response.getVirtualAccountExpiryDate());
 
         payment.setCustomerAccountNumber(response.getCustomerAccountNumber());
-        payment.setOnePipeReference(response.getReference());
 
         payment.setOnePipePaymentId(response.getPaymentId());
+        payment.setVirtualAccountQrCodeUrl(response.getVirtualAccountQrCodeUrl());
         paymentRepository.save(payment);
+
+        return payment;
     }
 
 
@@ -278,5 +308,91 @@ public class PaymentService {
         } else {
             throw new RuntimeException("OnePipe failed to process cancellation");
         }
+    }
+
+    public List<BranchPaymentDto> getPaymentsByBranch(Long branchId) {
+        Branch branch = branchRepository.findById(branchId)
+                .orElseThrow(() -> new RuntimeException("Branch not found"));
+
+        // Define date format for the UI
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+
+        return paymentRepository.findByBranch(branch).stream()
+                .map(payment -> BranchPaymentDto.builder()
+                        .id(payment.getId())
+                        // Handle potential null student (though unlikely in your flow)
+                        .studentName(payment.getStudent() != null
+                                ? payment.getStudent().getFirstName() + " " + payment.getStudent().getSurname()
+                                : "N/A")
+                        .description(payment.getDescription())
+                        .amount(payment.getTotalAmount())
+                        .remainingAmount(calculatePendingAmount(payment))
+                        .numberOfPayments(payment.getNumberOfPayments())
+                        .completedPayments(payment.getCompletedPayments())
+                        .type(payment.getPaymentType())
+                        .status(payment.getStatus())
+                        .date(payment.getCreatedAt().format(formatter))
+                        .build())
+                .collect(Collectors.toList());
+    }
+
+    public List<Payment> getPaymentsForStudent(Student student) {
+        return paymentRepository.findByStudent(student);
+    }
+
+    public Payment getSchoolFeesPayment(Student student) {
+        return paymentRepository.findByStudent(student).stream()
+                .filter(p -> p.getCategory() == PaymentCategory.SCHOOL_FEES)
+                .findFirst()
+                .orElse(null);
+    }
+
+    public BigDecimal calculatePendingAmount(Payment payment) {
+        if (payment.getStatus() == PaymentStatus.SUCCESSFUL) {
+            return BigDecimal.ZERO;
+        }
+
+        // Single Payment
+        if (payment.getPaymentType() == PaymentType.SINGLE_PAYMENT  ||
+                payment.getPaymentType() == PaymentType.SUBSCRIPTION) {
+            return payment.getTotalAmount();
+        }
+
+        // Installment / Subscription
+        // Formula: Total - (DownPayment + (PerCycle * CompletedCount))
+        BigDecimal down = payment.getDownPaymentAmount() != null ? payment.getDownPaymentAmount() : BigDecimal.ZERO;
+        BigDecimal perCycle = payment.getAmountPerCycle() != null ? payment.getAmountPerCycle() : BigDecimal.ZERO;
+        int completed = payment.getCompletedPayments() != null ? payment.getCompletedPayments() : 0;
+
+        BigDecimal paidSoFar = down.add(perCycle.multiply(new BigDecimal(completed)));
+
+        // Ensure we don't return negative numbers
+        return payment.getTotalAmount().subtract(paidSoFar).max(BigDecimal.ZERO);
+    }
+
+    public List<ParentPaymentDto> getPaymentsForChild(Long studentId) {
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new RuntimeException("Student not found"));
+
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+
+        return paymentRepository.findByStudent(student).stream()
+                .map(p -> ParentPaymentDto.builder()
+                        .onePipePaymentId(p.getOnePipePaymentId())
+                        .description(p.getDescription())
+                        .amount(p.getTotalAmount())
+                        .downPayment(p.getDownPaymentAmount())
+                        .customerAccountNumber(p.getCustomerAccountNumber())
+                        .status(p.getStatus())
+                        .paymentType(p.getPaymentType())
+                        .date(p.getCreatedAt().format(formatter))
+                        // Banking Details
+                        .virtualAccountNumber(p.getVirtualAccountNumber())
+                        .virtualAccountBankName(p.getVirtualAccountBankName())
+                        .virtualAccountName(p.getVirtualAccountName())
+                        .virtualAccountExpiryDate(p.getVirtualAccountExpiryDate())
+                        .qrCodeUrl(p.getVirtualAccountQrCodeUrl())
+                        .build())
+                .collect(Collectors.toList());
     }
 }

@@ -24,7 +24,7 @@ public class BranchController {
     }
 
     @GetMapping
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+//    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<List<CreateBranchResponse>> getAllBranches() {
         return ResponseEntity.ok(branchService.getAllBranches());
     }

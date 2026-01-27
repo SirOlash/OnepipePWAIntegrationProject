@@ -22,6 +22,7 @@ public class CreateBranchRequest {
     private String contactFirstName;
     private String contactSurname;
     private String contactPhoneNumber;
+    private String whatsappNumber;
 
     private String settlementAccountNumber;
     private String settlementBankCode;

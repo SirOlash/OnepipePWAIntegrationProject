@@ -14,6 +14,8 @@ public class CreateBranchResponse {
     private String businessName;
     private String branchCode;
     private String billerCode;
+    private String address;
     private String adminEmail;
+    private String phoneNumber;
     private String contactPersonName;
 }

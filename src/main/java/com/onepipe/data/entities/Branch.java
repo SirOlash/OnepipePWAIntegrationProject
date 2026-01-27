@@ -30,6 +30,7 @@ public class Branch extends BaseEntity {
     private String contactSurname;
     private String contactEmail;
     private String contactPhoneNumber;
+    private String whatsappNumber;
 
     private String settlementAccountNumber;
     private String settlementBankCode;
