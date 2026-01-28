@@ -1,19 +1,27 @@
-# Stage 1: build
-FROM eclipse-temurin:17-jdk as build
+# Stage 1: Build using an official Maven image
+# This image has 'mvn' installed, so we don't need 'mvnw'
+FROM maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /app
-COPY mvnw .
-COPY .mvn .mvn
+
+# Copy only the POM first to cache dependencies
 COPY pom.xml .
-# cache maven dependencies
-RUN mvn -B -f pom.xml dependency:go-offline
+# Download dependencies (this step will be cached if pom.xml doesn't change)
+RUN mvn dependency:go-offline -B
 
+# Copy the source code
 COPY src ./src
-RUN mvn -B -f pom.xml clean package -DskipTests
 
-# Stage 2: run
+# Build the app (Skip tests to speed up deployment and avoid environment issues)
+RUN mvn clean package -DskipTests
+
+# Stage 2: Run using a slim JRE image
 FROM eclipse-temurin:17-jre
-ARG JAR_FILE=target/*.jar
 WORKDIR /app
-COPY --from=build /app/${JAR_FILE} app.jar
+
+# Copy the JAR from the build stage
+# Note: The JAR is usually in target/onepipe-boarding-school-1.0-SNAPSHOT.jar
+# We use a wildcard *.jar to be safe
+COPY --from=build /app/target/*.jar app.jar
+
 EXPOSE 8080
-ENTRYPOINT ["java","-jar","/app/app.jar"]
+ENTRYPOINT ["java", "-jar", "app.jar"]
