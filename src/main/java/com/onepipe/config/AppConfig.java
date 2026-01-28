@@ -2,6 +2,7 @@ package com.onepipe.config;
 
 import com.onepipe.data.repositories.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -14,9 +15,11 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 @Configuration
-@RequiredArgsConstructor
+//@RequiredArgsConstructor
 public class AppConfig {
-    private final UserRepository userRepository;
+
+    @Autowired
+    private UserRepository userRepository;
 
     @Bean
     public UserDetailsService userDetailsService() {
