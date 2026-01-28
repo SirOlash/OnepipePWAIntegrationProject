@@ -77,7 +77,7 @@ public class OnePipeMerchantRequest {
         private String beta = "enabled";
         @JsonProperty("biller_sector")
         @Builder.Default
-        private String billerSector = "Aggregator";
+        private String billerSector = "Aggregattor";
         @JsonProperty("simple_payment")
         @Builder.Default
         private String simplePayment = "enabled";

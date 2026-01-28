@@ -41,6 +41,9 @@ public class Student extends BaseEntity{
     @JoinColumn(name = "parent_id")
     private Parent parent;
 
+    private Integer numberOfPayments;
+    private Integer completedPayments;
+
     @Enumerated(EnumType.STRING)
     private PaymentType preferredPaymentType;
 

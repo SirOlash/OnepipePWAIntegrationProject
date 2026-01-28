@@ -320,7 +320,6 @@ public class PaymentService {
         return paymentRepository.findByBranch(branch).stream()
                 .map(payment -> BranchPaymentDto.builder()
                         .id(payment.getId())
-                        // Handle potential null student (though unlikely in your flow)
                         .studentName(payment.getStudent() != null
                                 ? payment.getStudent().getFirstName() + " " + payment.getStudent().getSurname()
                                 : "N/A")
@@ -358,7 +357,11 @@ public class PaymentService {
             return payment.getTotalAmount();
         }
 
-        // Installment / Subscription
+        if (payment.getStatus() == PaymentStatus.PENDING) {
+            return payment.getTotalAmount();
+        }
+
+        // Installment
         // Formula: Total - (DownPayment + (PerCycle * CompletedCount))
         BigDecimal down = payment.getDownPaymentAmount() != null ? payment.getDownPaymentAmount() : BigDecimal.ZERO;
         BigDecimal perCycle = payment.getAmountPerCycle() != null ? payment.getAmountPerCycle() : BigDecimal.ZERO;
@@ -386,6 +389,9 @@ public class PaymentService {
                         .status(p.getStatus())
                         .paymentType(p.getPaymentType())
                         .date(p.getCreatedAt().format(formatter))
+                        .remainingAmount(calculatePendingAmount(p))
+                        .numberOfPayments(p.getNumberOfPayments())
+                        .completedPayments(p.getCompletedPayments())
                         // Banking Details
                         .virtualAccountNumber(p.getVirtualAccountNumber())
                         .virtualAccountBankName(p.getVirtualAccountBankName())

@@ -19,6 +19,10 @@ public class ParentPaymentDto {
     private PaymentType paymentType;
     private String date;
 
+    private BigDecimal remainingAmount;
+    private Integer numberOfPayments;
+    private Integer completedPayments;
+
     private String virtualAccountNumber;
     private String virtualAccountBankName;
     private String virtualAccountName;

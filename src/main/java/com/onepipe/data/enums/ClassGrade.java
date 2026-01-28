@@ -6,12 +6,12 @@ import java.math.BigDecimal;
 
 @Getter
 public enum ClassGrade {
-    JSS1(new BigDecimal("500.00")),
-    JSS2(new BigDecimal("500.00")),
-    JSS3(new BigDecimal("500.00")),
-    SS1(new BigDecimal("500.00")),
-    SS2(new BigDecimal("500.00")),
-    SS3(new BigDecimal("500.00"));
+    JSS1(new BigDecimal("1000.00")),
+    JSS2(new BigDecimal("1000.00")),
+    JSS3(new BigDecimal("1000.00")),
+    SS1(new BigDecimal("1000.00")),
+    SS2(new BigDecimal("1000.00")),
+    SS3(new BigDecimal("1000.00"));
 
     private final BigDecimal defaultFee;
 
