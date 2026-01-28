@@ -1,7 +1,6 @@
 package com.onepipe.config;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.boot.autoconfigure.security.servlet.PathRequest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -36,17 +35,15 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(Customizer.withDefaults())
                 .authorizeHttpRequests(auth -> auth
-                        // 1. Handle H2 Console explicitly
-                        .requestMatchers(PathRequest.toH2Console()).permitAll()
+                        // REMOVED H2 Console line - not needed for PostgreSQL production
 
-                        // 2. Wrap EVERY API path in new AntPathRequestMatcher(...)
-                        // Do not use simple strings like "/api/auth/**"
+                        // Wrap EVERY API path in new AntPathRequestMatcher(...)
                         .requestMatchers(new AntPathRequestMatcher("/api/auth/**")).permitAll()
                         .requestMatchers(new AntPathRequestMatcher("/api/students/register")).permitAll()
                         .requestMatchers(new AntPathRequestMatcher("/api/webhooks/**")).permitAll()
                         .requestMatchers(new AntPathRequestMatcher("/api/payments/test/**")).permitAll()
 
-                        // 3. Allow GET branches publicly (Note the "GET" parameter)
+                        // Allow GET branches publicly
                         .requestMatchers(new AntPathRequestMatcher("/api/branches", "GET")).permitAll()
 
                         .anyRequest().authenticated()
@@ -59,12 +56,11 @@ public class SecurityConfig {
         return http.build();
     }
 
-    // <--- 2. ADD THIS BEAN
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // Allow your Frontend URL (Adjust port if React runs on 3000 or 5173)
+        // Allow your Frontend URL
         configuration.setAllowedOriginPatterns(List.of("*"));
 
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
