@@ -37,7 +37,7 @@ public class OnePipeMerchantRequest {
     public static class Transaction {
         @JsonProperty("mock_mode")
         @Builder.Default
-        private String mockMode = "Inspect"; // Or "Live" depending on your key type
+        private String mockMode = "Live";
 
         @JsonProperty("transaction_ref")
         private String transactionRef;

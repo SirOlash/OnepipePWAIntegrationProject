@@ -36,7 +36,7 @@ public class OnePipeCancelRequest {
     public static class Transaction {
         @JsonProperty("mock_mode")
         @Builder.Default
-        private String mockMode = "Inspect";
+        private String mockMode = "Live";
 
         @JsonProperty("transaction_ref")
         private String transactionRef;

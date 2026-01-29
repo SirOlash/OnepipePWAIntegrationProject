@@ -216,7 +216,7 @@ public class PaymentService {
         switch (payment.getPaymentType()) {
             case SINGLE_PAYMENT:
                 meta.setType("single_payment");
-                meta.setExpiresIn(30);
+                meta.setExpiresIn(60);
                 meta.setSkipMessaging(false);
                 break;
             case INSTALLMENT:

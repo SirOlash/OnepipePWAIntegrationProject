@@ -29,7 +29,7 @@ public class OnePipeInvoiceRequest {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Transaction {
         @JsonProperty("mock_mode")
-        private String mockMode = "Inspect";
+        private String mockMode = "Live";
 
         @JsonProperty("transaction_ref")
         private String transactionRef;

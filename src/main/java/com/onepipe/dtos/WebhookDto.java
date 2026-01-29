@@ -1,36 +1,50 @@
 package com.onepipe.dtos;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 @Data
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class WebhookDto {
-    private String request_ref;
-    private String request_type;
+@JsonProperty("request_ref")
+private String requestRef;
 
-    @JsonProperty("details")
-    private Details details;
+@JsonProperty("request_type")
+private String requestType;
 
-    @Data
-    public static class Details {
-        @JsonProperty("status")
-        private String status;
+@JsonProperty("details")
+private Details details;
 
-        @JsonProperty("transaction_ref")
-        private String transactionRef;
+@Data
+@JsonIgnoreProperties(ignoreUnknown = true)
+public static class Details {
+    @JsonProperty("status")
+    private String status;
 
-        @JsonProperty("amount")
-        private String amount;
+    @JsonProperty("transaction_ref")
+    private String transactionRef;
 
-        @JsonProperty("provider")
-        private String provider;
+    @JsonProperty("amount")
+    private String amount;
 
-        @JsonProperty("meta")
-        private Meta meta;
-    }
+    @JsonProperty("provider")
+    private String provider;
 
-    @Data
-    public static class Meta {
-        private String payment_id;
-    }
+    @JsonProperty("customer_ref")
+    private String customerRef;
+
+    @JsonProperty("meta")
+    private Meta meta;
+}
+
+@Data
+@JsonIgnoreProperties(ignoreUnknown = true)
+public static class Meta {
+    @JsonProperty("payment_option")
+    private String paymentOption;
+
+    @JsonProperty("note")
+    private String note;
+}
 }

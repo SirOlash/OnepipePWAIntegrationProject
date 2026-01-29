@@ -136,7 +136,7 @@ public class RealOnePipeClient implements OnepipeClient {
                                 .email(requestDetails.getAdminEmail())
                                 .build())
                         .meta(OnePipeMerchantRequest.Meta.builder()
-                                .webhookUrl("https://your-app-url.com/api/webhooks/onepipe") // TODO Update it
+                                .webhookUrl("https://greenfield-backend-lkse.onrender.com/api/webhooks/onepipe") // TODO Update it
                                 .whatsappContactName(requestDetails.getContactFirstName())
                                 .whatsappContactNo(requestDetails.getWhatsappNumber())
                                 .businessShortName(requestDetails.getBusinessShortName())
