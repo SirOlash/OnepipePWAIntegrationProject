@@ -59,8 +59,8 @@ public class PaymentController {
     }
 
     @PostMapping("/{id}/query")
-    public ResponseEntity<Payment> queryPaymentStatus(@PathVariable String onePipeId) {
-        Payment updatedPayment = paymentService.queryAndFixPaymentStatus(onePipeId);
+    public ResponseEntity<Payment> queryPaymentStatus(@PathVariable String id) {
+        Payment updatedPayment = paymentService.queryAndFixPaymentStatus(id);
         return ResponseEntity.ok(updatedPayment);
     }
 }
