@@ -17,6 +17,8 @@ import java.util.Optional;
 public interface PaymentRepository extends JpaRepository<Payment, Long> {
     List<Payment> findByParent(Parent parent);
 
+    Optional<Payment> findByOnePipePaymentId(String onePipePaymentId);
+
     @Query("SELECT COUNT(p) FROM Payment p WHERE p.status = 'ACTIVE'")
     Long countActivePayments();
 

@@ -439,9 +439,9 @@ public class PaymentService {
         }
     }
 
-    public Payment queryAndFixPaymentStatus(Long paymentId) {
-        Payment payment = paymentRepository.findById(paymentId)
-                .orElseThrow(() -> new RuntimeException("Payment not found"));
+    public Payment queryAndFixPaymentStatus(String onePipeId) {
+        Payment payment = paymentRepository.findByOnePipePaymentId(onePipeId)
+                .orElseThrow(() -> new RuntimeException("Payment not found with OnePipe ID: " + onePipeId));
 
         // Optimization: If already successful, don't bother querying
         if (payment.getStatus() == PaymentStatus.SUCCESSFUL || payment.getStatus() == PaymentStatus.ACTIVE) {
