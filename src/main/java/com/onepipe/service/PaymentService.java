@@ -290,9 +290,9 @@ public class PaymentService {
     }
 
     @Transactional
-    public void cancelSubscription(Long paymentId) {
-        Payment payment = paymentRepository.findById(paymentId)
-                .orElseThrow(() -> new RuntimeException("Payment record not found"));
+    public void cancelSubscription(String onePipeId) {
+        Payment payment = paymentRepository.findByOnePipePaymentId(onePipeId)
+                .orElseThrow(() -> new RuntimeException("Payment not found with OnePipe ID: " + onePipeId));
 
         if (payment.getPaymentType() != PaymentType.SUBSCRIPTION) {
             throw new RuntimeException("Only Subscriptions can be cancelled");
