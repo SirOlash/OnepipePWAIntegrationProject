@@ -226,6 +226,7 @@ public class PaymentService {
                 if (isDemoMode) {
                     meta.setDownPayment(new BigDecimal("10000"));
                     meta.setRepeatFrequency("daily");
+                    meta.setExpiresIn(60);
                 } else {
                     meta.setDownPayment(payment.getDownPaymentAmount().multiply(new BigDecimal("100")));
                     meta.setRepeatFrequency(payment.getInstallmentFrequency().name().toLowerCase());
@@ -239,6 +240,7 @@ public class PaymentService {
                     meta.setRepeatFrequency("daily");
                     meta.setRepeatStartDate(formatDate(LocalDateTime.now().plusDays(1)));
                     meta.setRepeatEndDate(formatDate(LocalDateTime.now().plusDays(3)));
+                    meta.setExpiresIn(60);
                 } else {
                     meta.setRepeatFrequency("monthly");
                     meta.setRepeatStartDate(formatDate(LocalDateTime.now().plusMonths(1)));
