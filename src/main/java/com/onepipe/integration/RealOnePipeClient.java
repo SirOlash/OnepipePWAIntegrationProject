@@ -17,6 +17,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -237,51 +238,55 @@ public class RealOnePipeClient implements OnepipeClient {
         }
     }
 
-        @Override
-        public OnePipeResponse queryTransaction(String transactionRef) {
-            String url = baseUrl + "/transact";
-            String requestRef = UUID.randomUUID().toString();
+    @Override
+    public OnePipeResponse queryTransaction(String transactionRef) {
+        String url = baseUrl + "/transact";
+        String requestRef = UUID.randomUUID().toString();
 
-            OnePipeQueryRequest request = OnePipeQueryRequest.builder()
-                    .requestRef(requestRef)
-                    .transaction(OnePipeQueryRequest.Transaction.builder()
-                            .transactionRef(transactionRef)
-                            .build())
+        // --- FIX: Build JSON manually using Map to match Postman exactly ---
+        Map<String, Object> transactionMap = new HashMap<>();
+        transactionMap.put("transaction_ref", transactionRef);
+
+        Map<String, Object> requestMap = new HashMap<>();
+        requestMap.put("request_ref", requestRef);
+        requestMap.put("request_type", "send invoice");
+        requestMap.put("transaction", transactionMap);
+        // -------------------------------------------------------------------
+
+        // Signature logic
+        String signature = EncryptionUtil.generateSignature(requestRef, clientSecret);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(apiKey);
+        headers.set("Signature", signature);
+
+        // Send the Map directly
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestMap, headers);
+
+        System.out.println(">>> QUERYING ONEPIPE: " + transactionRef);
+
+        try {
+            ResponseEntity<Map> responseEntity = restTemplate.postForEntity(url, entity, Map.class);
+            Map<String, Object> body = responseEntity.getBody();
+
+            if (body == null || !"Successful".equalsIgnoreCase((String) body.get("status"))) {
+                System.out.println("Query Failed Response: " + body);
+                return OnePipeResponse.builder().status("Failed").message("Query Request Failed").build();
+            }
+
+            Map<String, Object> data = (Map<String, Object>) body.get("data");
+            Map<String, Object> providerResp = (Map<String, Object>) data.get("provider_response");
+
+            return OnePipeResponse.builder()
+                    .status((String) providerResp.get("status"))
+                    .transactionRef(transactionRef)
+                    .message((String) body.get("message"))
                     .build();
 
-            // Signature logic
-            String signature = EncryptionUtil.generateSignature(requestRef, clientSecret);
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.setBearerAuth(apiKey);
-            headers.set("Signature", signature);
-
-            HttpEntity<OnePipeQueryRequest> entity = new HttpEntity<>(request, headers);
-
-            try {
-                ResponseEntity<Map> responseEntity = restTemplate.postForEntity(url, entity, Map.class);
-                Map<String, Object> body = responseEntity.getBody();
-
-                // Check top level status
-                if (body == null || !"Successful".equalsIgnoreCase((String) body.get("status"))) {
-                    return OnePipeResponse.builder().status("Failed").message("Query Request Failed").build();
-                }
-
-                // Extract Data
-                Map<String, Object> data = (Map<String, Object>) body.get("data");
-                Map<String, Object> providerResp = (Map<String, Object>) data.get("provider_response");
-
-                // Return a simplified response with just the Status and Ref
-                return OnePipeResponse.builder()
-                        .status((String) providerResp.get("status")) // "successful"
-                        .transactionRef(transactionRef)
-                        .message((String) body.get("message"))
-                        .build();
-
-            } catch (Exception e) {
-                e.printStackTrace();
-                throw new RuntimeException("Query Call Failed: " + e.getMessage());
-            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw new RuntimeException("Query Call Failed: " + e.getMessage());
         }
+    }
 }

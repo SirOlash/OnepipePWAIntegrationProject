@@ -13,7 +13,7 @@ public class OnePipeQueryRequest {
 
     @JsonProperty("request_type")
     @Builder.Default
-    private String requestType = "send invoice"; // Based on your payload
+    private String requestType = "send invoice";
 
     private Transaction transaction;
 
