@@ -7,6 +7,7 @@ import com.onepipe.dtos.request.PaymentRequest;
 import com.onepipe.dtos.response.BranchPaymentDto;
 import com.onepipe.dtos.response.ParentPaymentDto;
 import com.onepipe.dtos.response.RegisterStudentResponse;
+import com.onepipe.integration.dto.OnePipeQueryResponse;
 import com.onepipe.service.PaymentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -59,8 +60,7 @@ public class PaymentController {
     }
 
     @PostMapping("/{id}/query")
-    public ResponseEntity<Payment> queryPaymentStatus(@PathVariable String id) {
-        Payment updatedPayment = paymentService.queryAndFixPaymentStatus(id);
-        return ResponseEntity.ok(updatedPayment);
+    public ResponseEntity<OnePipeQueryResponse> queryPaymentStatus(@PathVariable String id) {
+        return ResponseEntity.ok(paymentService.queryAndFixPaymentStatus(id));
     }
 }

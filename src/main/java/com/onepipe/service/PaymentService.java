@@ -14,6 +14,7 @@ import com.onepipe.dtos.response.ParentPaymentDto;
 import com.onepipe.dtos.response.RegisterStudentResponse;
 import com.onepipe.integration.OnepipeClient;
 import com.onepipe.integration.dto.OnePipeInvoiceRequest;
+import com.onepipe.integration.dto.OnePipeQueryResponse;
 import com.onepipe.integration.dto.OnePipeResponse;
 import com.onepipe.utils.EncryptionUtil;
 import lombok.RequiredArgsConstructor;
@@ -223,7 +224,7 @@ public class PaymentService {
             case INSTALLMENT:
                 meta.setType("instalment");
                 if (isDemoMode) {
-                    meta.setDownPayment(new BigDecimal("20000"));
+                    meta.setDownPayment(new BigDecimal("10000"));
                     meta.setRepeatFrequency("daily");
                 } else {
                     meta.setDownPayment(payment.getDownPaymentAmount().multiply(new BigDecimal("100")));
@@ -439,37 +440,49 @@ public class PaymentService {
         }
     }
 
-    public Payment queryAndFixPaymentStatus(String onePipeId) {
+    public OnePipeQueryResponse queryAndFixPaymentStatus(String onePipeId) {
         Payment payment = paymentRepository.findByOnePipePaymentId(onePipeId)
                 .orElseThrow(() -> new RuntimeException("Payment not found with OnePipe ID: " + onePipeId));
 
+        String returnMessage;
         // Optimization: If already successful, don't bother querying
         if (payment.getStatus() == PaymentStatus.SUCCESSFUL || payment.getStatus() == PaymentStatus.ACTIVE) {
-            return payment;
+            returnMessage = "Payment is already marked as successful/active.";
         }
 
-        OnePipeResponse response = onePipeClient.queryTransaction(payment.getTransactionRef());
+        else {
+            // 3. It is PENDING/FAILED locally, so let's ask OnePipe
+            OnePipeResponse response = onePipeClient.queryTransaction(payment.getTransactionRef());
 
-        // 2. Check Result
-        if ("successful".equalsIgnoreCase(response.getStatus())) {
+            if ("successful".equalsIgnoreCase(response.getStatus())) {
+                // 4. OnePipe says it's money! Update our DB.
 
-            // 3. Update Status Logic (Replicating Webhook Logic)
-            if (payment.getPaymentType() == PaymentType.SINGLE_PAYMENT) {
-                payment.setStatus(PaymentStatus.SUCCESSFUL);
-            }
-            else if (payment.getPaymentType() == PaymentType.INSTALLMENT) {
-                // For installments, the Initial Query usually confirms the Down Payment
-                payment.setCompletedPayments(1); // Mark down payment as done
-                payment.setStatus(PaymentStatus.ACTIVE);
-            }
-            else if (payment.getPaymentType() == PaymentType.SUBSCRIPTION) {
-                payment.setCompletedPayments(1);
-                payment.setStatus(PaymentStatus.ACTIVE);
-            }
+                if (payment.getPaymentType() == PaymentType.SINGLE_PAYMENT) {
+                    payment.setStatus(PaymentStatus.SUCCESSFUL);
+                }
+                else if (payment.getPaymentType() == PaymentType.INSTALLMENT ||
+                        payment.getPaymentType() == PaymentType.SUBSCRIPTION) {
+                    // Mark the first payment (down payment) as done
+                    payment.setCompletedPayments(1);
+                    payment.setStatus(PaymentStatus.ACTIVE);
+                }
 
-            return paymentRepository.save(payment);
+                // Save the changes
+                payment = paymentRepository.save(payment);
+                returnMessage = "Payment confirmed successful and updated.";
+            } else {
+                // OnePipe says it is still pending or failed
+                returnMessage = "Payment status checked: " + response.getStatus();
+            }
         }
 
-        return payment;
+        // 5. Return the Clean DTO (Fixes the ByteBuddy/Serialization error)
+        return OnePipeQueryResponse.builder()
+                .transactionRef(payment.getTransactionRef())
+                .requestRef(payment.getRequestRef())
+                .onePipePaymentId(payment.getOnePipePaymentId())
+                .status(payment.getStatus().name())
+                .message(returnMessage)
+                .build();
     }
 }
