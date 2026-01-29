@@ -4,6 +4,7 @@ import com.onepipe.data.entities.Branch;
 import com.onepipe.data.entities.Parent;
 import com.onepipe.data.entities.Payment;
 import com.onepipe.data.entities.Student;
+import com.onepipe.data.enums.PaymentStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
@@ -22,6 +23,8 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     List<Payment> findByStudent(Student student);
 
     List<Payment> findByBranch(Branch branch);
+    // Add this method
+    List<Payment> findByStatus(PaymentStatus status);
 
     @Query("SELECT COALESCE(SUM(p.totalAmount), 0) FROM Payment p WHERE p.status = 'SUCCESSFUL'")
     BigDecimal calculateTotalRevenue();

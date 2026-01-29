@@ -20,6 +20,7 @@ public class OnePipeResponse {
 
     private String customerAccountNumber; // for installment and subscription, the customer must transfer from this account
     private String customerEmail;
+    private String transactionRef;
 
     private String paymentId;
 //    private String reference;

@@ -18,6 +18,7 @@ import com.onepipe.integration.dto.OnePipeResponse;
 import com.onepipe.utils.EncryptionUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -400,5 +401,75 @@ public class PaymentService {
                         .qrCodeUrl(p.getVirtualAccountQrCodeUrl())
                         .build())
                 .collect(Collectors.toList());
+    }
+
+    @Scheduled(fixedRate = 60000)
+    public void expireOverduePayments() {
+        // 1. Fetch all PENDING payments
+        List<Payment> pendingPayments = paymentRepository.findByStatus(PaymentStatus.PENDING);
+
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        LocalDateTime now = LocalDateTime.now();
+
+        for (Payment payment : pendingPayments) {
+            String expiryStr = payment.getVirtualAccountExpiryDate();
+
+            // Skip if no expiry date (e.g. manual payments)
+            if (expiryStr == null || expiryStr.isEmpty()) {
+                continue;
+            }
+
+            try {
+                // 2. Parse the OnePipe Date String
+                // Handle potential format differences (OnePipe sometimes sends different formats)
+                // We assume "yyyy-MM-dd HH:mm:ss" based on your logs
+                LocalDateTime expiryDate = LocalDateTime.parse(expiryStr, formatter);
+
+                // 3. Check if Expired
+                if (expiryDate.isBefore(now)) {
+                    System.out.println("⚠️ Expiring Payment ID: " + payment.getId() + " (Time elapsed)");
+
+                    payment.setStatus(PaymentStatus.CANCELLED);
+                    paymentRepository.save(payment);
+                }
+            } catch (Exception e) {
+                // Log error but don't stop the loop for other payments
+                System.err.println("Error parsing date for payment " + payment.getId() + ": " + expiryStr);
+            }
+        }
+    }
+
+    public Payment queryAndFixPaymentStatus(Long paymentId) {
+        Payment payment = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new RuntimeException("Payment not found"));
+
+        // Optimization: If already successful, don't bother querying
+        if (payment.getStatus() == PaymentStatus.SUCCESSFUL || payment.getStatus() == PaymentStatus.ACTIVE) {
+            return payment;
+        }
+
+        OnePipeResponse response = onePipeClient.queryTransaction(payment.getTransactionRef());
+
+        // 2. Check Result
+        if ("successful".equalsIgnoreCase(response.getStatus())) {
+
+            // 3. Update Status Logic (Replicating Webhook Logic)
+            if (payment.getPaymentType() == PaymentType.SINGLE_PAYMENT) {
+                payment.setStatus(PaymentStatus.SUCCESSFUL);
+            }
+            else if (payment.getPaymentType() == PaymentType.INSTALLMENT) {
+                // For installments, the Initial Query usually confirms the Down Payment
+                payment.setCompletedPayments(1); // Mark down payment as done
+                payment.setStatus(PaymentStatus.ACTIVE);
+            }
+            else if (payment.getPaymentType() == PaymentType.SUBSCRIPTION) {
+                payment.setCompletedPayments(1);
+                payment.setStatus(PaymentStatus.ACTIVE);
+            }
+
+            return paymentRepository.save(payment);
+        }
+
+        return payment;
     }
 }

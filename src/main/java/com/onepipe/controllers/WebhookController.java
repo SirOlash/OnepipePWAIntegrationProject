@@ -43,7 +43,6 @@ public class WebhookController {
             // For debugging, 200 is often safer to prevent flood.
             return ResponseEntity.ok().build();
         }
-
         return ResponseEntity.ok().build();
     }
 }

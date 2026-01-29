@@ -24,6 +24,7 @@ public class RegisterStudentResponse {
     @Data
     @Builder
     public static class PaymentDetails {
+        private String onePipePaymentId;
         private BigDecimal amount;
         private BigDecimal downPayment;
         private String bankName;

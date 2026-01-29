@@ -7,10 +7,12 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.context.annotation.Bean;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
 @EnableJpaRepositories(basePackages = "com.onepipe.data.repositories")
 @EntityScan(basePackages = "com.onepipe.data.entities")
+@EnableScheduling
 public class OnepipeBoardingSchoolApplication {
 
     public static void main(String[] args) {

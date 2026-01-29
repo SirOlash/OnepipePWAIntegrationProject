@@ -57,4 +57,10 @@ public class PaymentController {
     ) {
         return ResponseEntity.ok(paymentService.getPaymentsForChild(studentId));
     }
+
+    @PostMapping("/{id}/query")
+    public ResponseEntity<Payment> queryPaymentStatus(@PathVariable Long id) {
+        Payment updatedPayment = paymentService.queryAndFixPaymentStatus(id);
+        return ResponseEntity.ok(updatedPayment);
+    }
 }

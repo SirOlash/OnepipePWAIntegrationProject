@@ -83,6 +83,7 @@ public class StudentService {
                 .message("Registration Successful! Check email for details.")
 
                 .paymentDetails(RegisterStudentResponse.PaymentDetails.builder()
+                        .onePipePaymentId(payment.getOnePipePaymentId())
                         .amount(payment.getTotalAmount())
                         .downPayment(payment.getDownPaymentAmount())
                         .bankName(payment.getVirtualAccountBankName())

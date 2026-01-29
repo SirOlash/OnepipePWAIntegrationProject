@@ -3,10 +3,7 @@ package com.onepipe.integration;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.onepipe.data.entities.Payment;
 import com.onepipe.dtos.request.CreateBranchRequest;
-import com.onepipe.integration.dto.OnePipeCancelRequest;
-import com.onepipe.integration.dto.OnePipeInvoiceRequest;
-import com.onepipe.integration.dto.OnePipeMerchantRequest;
-import com.onepipe.integration.dto.OnePipeResponse;
+import com.onepipe.integration.dto.*;
 import com.onepipe.utils.EncryptionUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -239,4 +236,52 @@ public class RealOnePipeClient implements OnepipeClient {
             return false;
         }
     }
+
+        @Override
+        public OnePipeResponse queryTransaction(String transactionRef) {
+            String url = baseUrl + "/transact";
+            String requestRef = UUID.randomUUID().toString();
+
+            OnePipeQueryRequest request = OnePipeQueryRequest.builder()
+                    .requestRef(requestRef)
+                    .transaction(OnePipeQueryRequest.Transaction.builder()
+                            .transactionRef(transactionRef)
+                            .build())
+                    .build();
+
+            // Signature logic
+            String signature = EncryptionUtil.generateSignature(requestRef, clientSecret);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setBearerAuth(apiKey);
+            headers.set("Signature", signature);
+
+            HttpEntity<OnePipeQueryRequest> entity = new HttpEntity<>(request, headers);
+
+            try {
+                ResponseEntity<Map> responseEntity = restTemplate.postForEntity(url, entity, Map.class);
+                Map<String, Object> body = responseEntity.getBody();
+
+                // Check top level status
+                if (body == null || !"Successful".equalsIgnoreCase((String) body.get("status"))) {
+                    return OnePipeResponse.builder().status("Failed").message("Query Request Failed").build();
+                }
+
+                // Extract Data
+                Map<String, Object> data = (Map<String, Object>) body.get("data");
+                Map<String, Object> providerResp = (Map<String, Object>) data.get("provider_response");
+
+                // Return a simplified response with just the Status and Ref
+                return OnePipeResponse.builder()
+                        .status((String) providerResp.get("status")) // "successful"
+                        .transactionRef(transactionRef)
+                        .message((String) body.get("message"))
+                        .build();
+
+            } catch (Exception e) {
+                e.printStackTrace();
+                throw new RuntimeException("Query Call Failed: " + e.getMessage());
+            }
+        }
 }
