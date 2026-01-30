@@ -31,7 +31,7 @@ public class AuthService {
                 loginRequest.getPassword())
         );
 
-        var user = userRepository.findByEmail(loginRequest.getEmail())
+        var user = userRepository.findByEmailIgnoreCase(loginRequest.getEmail())
                 .orElseThrow(() -> new UserNotFoundException("User with email " + loginRequest.getEmail() + " not found"));
 
         var userDetails = org.springframework.security.core.userdetails.User

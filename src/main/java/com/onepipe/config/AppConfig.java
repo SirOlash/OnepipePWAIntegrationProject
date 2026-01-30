@@ -20,7 +20,7 @@ public class AppConfig {
 
     @Bean
     public UserDetailsService userDetailsService() {
-        return username -> userRepository.findByEmail(username)
+        return username -> userRepository.findByEmailIgnoreCase(username)
                 .map(user -> org.springframework.security.core.userdetails.User
                         .withUsername(user.getEmail())
                         .password(user.getPassword())

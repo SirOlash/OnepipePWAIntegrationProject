@@ -24,9 +24,9 @@ public class DataSeeder implements CommandLineRunner {
 
     @Override
     public void run(String... args) throws Exception {
-        if (userRepository.findByEmail(adminEmail).isEmpty()) {
+        if (userRepository.findByEmailIgnoreCase(adminEmail).isEmpty()) {
             User superAdmin = User.builder()
-                    .email(adminEmail)
+                    .email(adminEmail.toLowerCase())
                     .password(passwordEncoder.encode(adminPassword))
                     .role(Role.SUPER_ADMIN)
                     .build();

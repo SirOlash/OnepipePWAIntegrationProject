@@ -98,10 +98,10 @@ public class StudentService {
     }
 
     private Parent createSafeParent(RegisterStudentRequest request) {
-        User user = userRepository.findByEmail(request.getParentEmail()).orElse(null);
+        User user = userRepository.findByEmailIgnoreCase(request.getParentEmail()).orElse(null);
         if (user == null) {
             user = User.builder()
-                    .email(request.getParentEmail())
+                    .email(request.getParentEmail().toLowerCase())
                     .password(passwordEncoder.encode(request.getParentPassword()))
                     .role(Role.PARENT)
                     .build();

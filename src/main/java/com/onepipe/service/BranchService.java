@@ -30,12 +30,12 @@ public class BranchService {
     @Transactional
     public CreateBranchResponse createBranch(CreateBranchRequest request) {
 
-        if (userRepository.existsByEmail(request.getAdminEmail())) {
+        if (userRepository.existsByEmailIgnoreCase(request.getAdminEmail())) {
             throw new RuntimeException("Email already taken");
         }
 
         User newAdmin = User.builder()
-                .email(request.getAdminEmail())
+                .email(request.getAdminEmail().toLowerCase())
                 .password(passwordEncoder.encode(request.getAdminPassword()))
                 .role(Role.BRANCH_ADMIN)
                 .build();
