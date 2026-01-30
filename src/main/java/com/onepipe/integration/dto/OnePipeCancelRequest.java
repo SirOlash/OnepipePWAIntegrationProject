@@ -1,38 +1,45 @@
 package com.onepipe.integration.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Builder;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.Map;
 
 @Data
 @Builder
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class OnePipeCancelRequest {
     @JsonProperty("request_ref")
     private String requestRef;
 
     @JsonProperty("request_type")
     @Builder.Default
-    private String requestType = "cancel mandate";
+    private String requestType = "Cancel mandate";
 
     private Auth auth;
     private Transaction transaction;
 
     @Data
     @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Auth {
         @JsonProperty("auth_provider")
         @Builder.Default
         private String authProvider = "PaywithAccount";
-        private String secure;
-        private String type;
-        @JsonProperty("route_mode")
-        private String routeMode;
+        @Builder.Default
+        private String secure = null;
+        @Builder.Default
+        private String type = null;
+//        @JsonProperty("route_mode")
+//        private String routeMode;
     }
 
     @Data
     @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Transaction {
         @JsonProperty("mock_mode")
         @Builder.Default
@@ -46,19 +53,20 @@ public class OnePipeCancelRequest {
 
         @JsonProperty("transaction_ref_parent")
         @Builder.Default
-        private String transactionRefParent = "";
+        private String transactionRefParent = null;
 
         @Builder.Default
         private BigDecimal amount = BigDecimal.ZERO;
 
         private Customer customer;
         private Meta meta;
-        private Object details;
-        private Object options;
+        private Map<String, Object> details;
+        private Map<String, Object> options;
     }
 
     @Data
     @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Customer {
         @JsonProperty("customer_ref")
         private String customerRef;
@@ -71,6 +79,7 @@ public class OnePipeCancelRequest {
 
     @Data
     @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Meta {
         @JsonProperty("biller_code")
         private String billerCode;
@@ -78,7 +87,7 @@ public class OnePipeCancelRequest {
         @JsonProperty("payment_id")
         private String paymentId;
 
-        @Builder.Default
-        private Boolean ticket = true;
+//        @Builder.Default
+//        private Boolean ticket = true;
     }
 }
