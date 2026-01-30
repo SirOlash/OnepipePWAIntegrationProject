@@ -10,6 +10,7 @@ import java.util.Optional;
 @Repository
 public interface BranchRepository extends JpaRepository<Branch, Long> {
 
+    Optional<Branch> findByAdminUser_EmailIgnoreCase(String email);
     Optional<Branch> findByAdminUser(User adminUser);
 
     boolean existsByRequestRef(String requestRef);
