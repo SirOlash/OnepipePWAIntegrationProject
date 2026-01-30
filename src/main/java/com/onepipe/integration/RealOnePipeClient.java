@@ -211,7 +211,11 @@ public class RealOnePipeClient implements OnepipeClient {
                                 .billerCode(payment.getBranch().getBillerCode())
                                 .paymentId(payment.getOnePipePaymentId())
                                 .build())
-                        .details(new Object())
+                        // OPTION 1: Remove this line completely
+                        // OPTION 2: Use null instead
+                        .details(null)
+                        // OPTION 3: Use empty HashMap
+                        // .details(new HashMap<>())
                         .build())
                 .build();
 
