@@ -123,7 +123,7 @@ public class PaymentService {
         builder.transactionRef(category.name() + "-" + System.currentTimeMillis());
 
         // ✅ HANDLE ALL PAYMENT TYPES
-        configurePaymentDetails(builder, paymentType, amount, student);
+        configurePaymentDetails(builder,effectivePaymentType, amount, student);
 
         Payment payment = builder.build();
         payment = paymentRepository.save(payment);
@@ -264,13 +264,19 @@ public class PaymentService {
             case SUBSCRIPTION:
                 meta.setType("subscription");
                 if (isDemoMode) {
-                    meta.setDownPayment(payment.getDownPaymentAmount().multiply(new BigDecimal("100")));
+                    BigDecimal downPayment = payment.getDownPaymentAmount() != null
+                            ? payment.getDownPaymentAmount().multiply(new BigDecimal("100"))
+                            : payment.getTotalAmount().multiply(new BigDecimal("100"));
+                    meta.setDownPayment(downPayment);
                     meta.setRepeatFrequency("daily");
                     meta.setRepeatStartDate(formatDate(LocalDateTime.now().plusDays(1)));
                     meta.setRepeatEndDate(formatDate(LocalDateTime.now().plusDays(3)));
                     meta.setExpiresIn(60);
                 } else {
-                    meta.setDownPayment(payment.getDownPaymentAmount().multiply(new BigDecimal("100")));
+                    BigDecimal downPayment = payment.getDownPaymentAmount() != null
+                            ? payment.getDownPaymentAmount().multiply(new BigDecimal("100"))
+                            : payment.getTotalAmount().multiply(new BigDecimal("100"));
+                    meta.setDownPayment(downPayment);
                     meta.setRepeatFrequency(payment.getInstallmentFrequency().name().toLowerCase());
                     meta.setRepeatStartDate(formatDate(LocalDateTime.now().plusMonths(1)));
                     meta.setRepeatEndDate(formatDate(LocalDateTime.now().plusMonths(3)));
