@@ -13,6 +13,7 @@ public class ParentStudentDto {
     private String firstName;
     private String surname;
     private ClassGrade classGrade;
-    private String status;
+    private String branchName;
+//    private String status;
     private BigDecimal pendingAmount;
 }

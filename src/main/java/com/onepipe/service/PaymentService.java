@@ -1,14 +1,17 @@
 package com.onepipe.service;
 
 import com.onepipe.data.entities.Branch;
+import com.onepipe.data.entities.Parent;
 import com.onepipe.data.entities.Payment;
 import com.onepipe.data.entities.Student;
 import com.onepipe.data.enums.PaymentStatus;
 import com.onepipe.data.enums.PaymentType;
 import com.onepipe.data.enums.PaymentCategory;
 import com.onepipe.data.repositories.BranchRepository;
+import com.onepipe.data.repositories.ParentRepository;
 import com.onepipe.data.repositories.PaymentRepository;
 import com.onepipe.data.repositories.StudentRepository;
+import com.onepipe.dtos.request.SwitchPlanRequest;
 import com.onepipe.dtos.response.BranchPaymentDto;
 import com.onepipe.dtos.response.ParentPaymentDto;
 import com.onepipe.dtos.response.RegisterStudentResponse;
@@ -29,6 +32,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -39,14 +43,22 @@ public class PaymentService {
     private final PaymentRepository paymentRepository;
     private final OnepipeClient onePipeClient;
     private final StudentRepository studentRepository;
+    private final ParentRepository parentRepository;
     private final BranchRepository branchRepository;
 
     @Value("${onepipe.client-secret}")
     private String clientSecret;
 
+    private static final List<PaymentStatus> ACTIVE_PAYMENT_STATUSES = List.of(
+            PaymentStatus.PENDING,
+            PaymentStatus.ACTIVE
+    );
+
     // --- 1. Called when a Student Registers ---
     @Transactional
     public Payment createInitialSchoolFeesPayment(Student student) {
+        validateNoExistingSchoolFeesPayment(student);
+
         BigDecimal totalFee = student.getClassGrade().getDefaultFee();
 
         Payment.PaymentBuilder builder = Payment.builder()
@@ -66,43 +78,29 @@ public class PaymentService {
         builder.requestRef(requestRef);
         builder.transactionRef(transactionRef);
 
-        // Handle Installment Logic (20% Down)
-        if (student.getPreferredPaymentType() == PaymentType.INSTALLMENT) {
-            BigDecimal down = totalFee.multiply(new BigDecimal("0.20")).setScale(2, RoundingMode.HALF_UP);
-            Integer installments = student.getNumberOfInstallments();
-
-            if (installments == null || installments <= 0) {
-                // Default to 3 if missing (Safeguard)
-                installments = 3;
-            }
-
-            BigDecimal remaining = totalFee.subtract(down);
-            BigDecimal perCycle = remaining.divide(new BigDecimal(installments), 2, RoundingMode.HALF_UP);
-
-            builder.downPaymentAmount(down);
-            builder.amountPerCycle(perCycle);
-            builder.installmentFrequency(student.getInstallmentFrequency());
-            builder.numberOfPayments(installments);
-        }
+        // ✅ HANDLE ALL PAYMENT TYPES
+        configurePaymentDetails(builder, student.getPreferredPaymentType(), totalFee, student);
 
         Payment payment = builder.build();
         paymentRepository.save(payment);
 
-        // --- Trigger OnePipe (Mock or Real) ---
-
         return initiatePaymentRequest(payment);
-
-
     }
 
+    // --- UPDATED triggerNewPayment ---
     @Transactional
     public RegisterStudentResponse triggerNewPayment(Long studentId,
-                                     PaymentCategory category,
-                                     BigDecimal amount,
-                                     PaymentType paymentType,
-                                     String description) {
+                                                     PaymentCategory category,
+                                                     BigDecimal amount,
+                                                     PaymentType paymentType,
+                                                     String description) {
 
-        Student student = studentRepository.findById(studentId).orElseThrow();
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new RuntimeException("Student not found with ID: " + studentId));
+
+        if (category == PaymentCategory.SCHOOL_FEES) {
+            validateNoExistingSchoolFeesPayment(student);
+        }
         if (description == null || description.isEmpty()) {
             description = category.name() + " payment for student " + student.getFirstName();
         }
@@ -122,24 +120,8 @@ public class PaymentService {
         builder.requestRef(UUID.randomUUID().toString());
         builder.transactionRef(category.name() + "-" + System.currentTimeMillis());
 
-        // Handle installment logic if needed
-        if (paymentType == PaymentType.INSTALLMENT) {
-            BigDecimal down = amount.multiply(new BigDecimal("0.20"))
-                    .setScale(2, RoundingMode.HALF_UP);
-            Integer installments = student.getNumberOfInstallments();
-
-            if (installments == null || installments <= 0) {
-                installments = 3; // default safeguard
-            }
-
-            BigDecimal remaining = amount.subtract(down);
-            BigDecimal perCycle = remaining.divide(new BigDecimal(installments), 2, RoundingMode.HALF_UP);
-
-            builder.downPaymentAmount(down);
-            builder.amountPerCycle(perCycle);
-            builder.installmentFrequency(student.getInstallmentFrequency());
-            builder.numberOfPayments(installments);
-        }
+        // ✅ HANDLE ALL PAYMENT TYPES
+        configurePaymentDetails(builder, paymentType, amount, student);
 
         Payment payment = builder.build();
         payment = paymentRepository.save(payment);
@@ -152,7 +134,6 @@ public class PaymentService {
                 .studentName(student.getFirstName() + " " + student.getSurname())
                 .parentName(student.getParent().getFirstName() + " " + student.getParent().getSurname())
                 .message("Invoice successfully created!!! Check email for details.")
-
                 .paymentDetails(RegisterStudentResponse.PaymentDetails.builder()
                         .amount(completedPayment.getTotalAmount())
                         .downPayment(completedPayment.getDownPaymentAmount())
@@ -165,7 +146,51 @@ public class PaymentService {
                         .qrCodeImage(completedPayment.getVirtualAccountQrCodeUrl())
                         .build())
                 .build();
+    }
 
+    // ✅ NEW CENTRALIZED METHOD - ADD THIS
+    private void configurePaymentDetails(Payment.PaymentBuilder builder,
+                                         PaymentType paymentType,
+                                         BigDecimal amount,
+                                         Student student) {
+        switch (paymentType) {
+            case SINGLE_PAYMENT:
+                // No additional configuration needed
+                break;
+
+            case INSTALLMENT:
+                BigDecimal down = amount.multiply(new BigDecimal("0.20"))
+                        .setScale(2, RoundingMode.HALF_UP);
+                Integer installments = student.getNumberOfInstallments();
+
+                if (installments == null || installments <= 0) {
+                    installments = 3; // default safeguard
+                }
+
+                BigDecimal remaining = amount.subtract(down);
+                BigDecimal perCycle = remaining.divide(new BigDecimal(installments), 2, RoundingMode.HALF_UP);
+
+                builder.downPaymentAmount(down);
+                builder.amountPerCycle(perCycle);
+                builder.installmentFrequency(student.getInstallmentFrequency());
+                builder.numberOfPayments(installments);
+                break;
+
+            case SUBSCRIPTION:
+                // For subscriptions, set the billing cycle
+                // Amount per cycle = total amount (this is the recurring amount)
+                builder.downPaymentAmount(amount);
+                builder.amountPerCycle(amount);
+                builder.installmentFrequency(student.getInstallmentFrequency() != null
+                        ? student.getInstallmentFrequency()
+                        : com.onepipe.data.enums.InstallmentFrequency.MONTHLY); // Default to monthly
+                // For subscriptions, numberOfPayments can be null (unlimited) or set a limit
+                builder.numberOfPayments(null); // Unlimited subscription
+                break;
+
+            default:
+                throw new IllegalArgumentException("Unsupported payment type: " + paymentType);
+        }
     }
 
 
@@ -237,12 +262,14 @@ public class PaymentService {
             case SUBSCRIPTION:
                 meta.setType("subscription");
                 if (isDemoMode) {
+                    meta.setDownPayment(payment.getDownPaymentAmount().multiply(new BigDecimal("100")));
                     meta.setRepeatFrequency("daily");
                     meta.setRepeatStartDate(formatDate(LocalDateTime.now().plusDays(1)));
                     meta.setRepeatEndDate(formatDate(LocalDateTime.now().plusDays(3)));
                     meta.setExpiresIn(60);
                 } else {
-                    meta.setRepeatFrequency("monthly");
+                    meta.setDownPayment(payment.getDownPaymentAmount().multiply(new BigDecimal("100")));
+                    meta.setRepeatFrequency(payment.getInstallmentFrequency().name().toLowerCase());
                     meta.setRepeatStartDate(formatDate(LocalDateTime.now().plusMonths(1)));
                     meta.setRepeatEndDate(formatDate(LocalDateTime.now().plusMonths(3)));
                 }
@@ -487,4 +514,63 @@ public class PaymentService {
                 .message(returnMessage)
                 .build();
     }
+
+    private void validateNoExistingSchoolFeesPayment(Student student) {
+        Optional<Payment> existingPayment = paymentRepository.findFirstByStudentAndCategoryAndStatusIn(
+                student,
+                PaymentCategory.SCHOOL_FEES,
+                ACTIVE_PAYMENT_STATUSES
+        );
+        if (existingPayment.isPresent()) {
+            Payment payment = existingPayment.get();
+            throw new RuntimeException(
+                    String.format("Student '%s %s' already has a %s school fees payment (ID: %s). " +
+                                    "Complete or cancel it before creating a new one.",
+                            student.getFirstName(),
+                            student.getSurname(),
+                            payment.getStatus().name().toLowerCase(),
+                            payment.getOnePipePaymentId())
+            );
+        }
+    }
+
+        @Transactional
+        public void updatePaymentPlan(Long studentId, SwitchPlanRequest request) {
+            Student student = studentRepository.findById(studentId)
+                    .orElseThrow(() -> new RuntimeException("Student not found"));
+
+            boolean hasActiveOrPending = paymentRepository.findByStudent(student).stream()
+                    .filter(p -> p.getCategory() == PaymentCategory.SCHOOL_FEES)
+                    .anyMatch(p -> p.getStatus() == PaymentStatus.PENDING || p.getStatus() == PaymentStatus.ACTIVE);
+
+            if (hasActiveOrPending) {
+                throw new RuntimeException("Cannot switch plan. Student has a Pending or Active School Fee.");
+            }
+
+            if (request.getNewPaymentType() == PaymentType.INSTALLMENT ||
+                    request.getNewPaymentType() == PaymentType.SUBSCRIPTION) {
+
+                if (request.getBankAccountNumber() != null && request.getBankCode() != null) {
+                    Parent parent = student.getParent();
+                    parent.setBankAccountNumber(request.getBankAccountNumber());
+                    parent.setBankCode(request.getBankCode());
+
+                    parentRepository.save(parent);
+                } else {
+                    if (student.getParent().getBankAccountNumber() == null) {
+                        throw new RuntimeException("Bank Account details are required to switch to this plan.");
+                    }
+                }
+            }
+            student.setPreferredPaymentType(request.getNewPaymentType());
+
+            if (request.getNewPaymentType() == PaymentType.INSTALLMENT) {
+                student.setInstallmentFrequency(request.getFrequency());
+                student.setNumberOfInstallments(request.getNumberOfInstallments());
+            } else {
+                student.setInstallmentFrequency(null);
+                student.setNumberOfInstallments(null);
+            }
+            studentRepository.save(student);
+        }
 }

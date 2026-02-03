@@ -4,6 +4,7 @@ import com.onepipe.data.entities.Branch;
 import com.onepipe.data.entities.Parent;
 import com.onepipe.data.entities.Payment;
 import com.onepipe.data.entities.Student;
+import com.onepipe.data.enums.PaymentCategory;
 import com.onepipe.data.enums.PaymentStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -32,4 +33,10 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     BigDecimal calculateTotalRevenue();
 
     Optional<Payment> findByTransactionRef(String transactionRef);
+
+    Optional<Payment> findFirstByStudentAndCategoryAndStatusIn(
+            Student student,
+            PaymentCategory category,
+            List<PaymentStatus> statuses
+    );
 }

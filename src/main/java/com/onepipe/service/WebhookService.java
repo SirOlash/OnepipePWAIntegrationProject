@@ -72,9 +72,19 @@ public class WebhookService {
             }
         }
 
-        else if (payment.getPaymentType() == PaymentType.SUBSCRIPTION) {
-            payment.setCompletedPayments((payment.getCompletedPayments() == null ? 0 : payment.getCompletedPayments()) + 1);
+        int currentCount = (payment.getCompletedPayments() == null) ? 0 : payment.getCompletedPayments();
+        int newCount = currentCount + 1;
+
+        payment.setCompletedPayments(newCount);
+
+        // First payment activates the subscription
+        if (newCount == 1) {
             payment.setStatus(PaymentStatus.ACTIVE);
+            System.out.println("✅ Subscription activated after first payment!");
+        } else {
+            // Subsequent payments keep it active
+            payment.setStatus(PaymentStatus.ACTIVE);
+            System.out.println("✅ Subscription payment #" + newCount + " received");
         }
     }
 }

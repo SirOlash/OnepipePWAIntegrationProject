@@ -4,6 +4,7 @@ import com.onepipe.data.entities.Payment;
 import com.onepipe.data.enums.PaymentCategory;
 import com.onepipe.data.enums.PaymentType;
 import com.onepipe.dtos.request.PaymentRequest;
+import com.onepipe.dtos.request.SwitchPlanRequest;
 import com.onepipe.dtos.response.BranchPaymentDto;
 import com.onepipe.dtos.response.ParentPaymentDto;
 import com.onepipe.dtos.response.RegisterStudentResponse;
@@ -62,5 +63,14 @@ public class PaymentController {
     @PostMapping("/{id}/query")
     public ResponseEntity<OnePipeQueryResponse> queryPaymentStatus(@PathVariable String id) {
         return ResponseEntity.ok(paymentService.queryAndFixPaymentStatus(id));
+    }
+
+    @PutMapping("/students/{studentId}/switch-plan")
+    public ResponseEntity<String> updatePaymentPlan(
+            @PathVariable Long studentId,
+            @RequestBody SwitchPlanRequest request
+    ) {
+        paymentService.updatePaymentPlan(studentId, request);
+        return ResponseEntity.ok("Payment Plan updated successfully.");
     }
 }

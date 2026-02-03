@@ -181,7 +181,8 @@ public class StudentService {
                             .firstName(student.getFirstName())
                             .surname(student.getSurname())
                             .classGrade(student.getClassGrade())
-                            .status(status)
+                            .branchName(student.getBranch().getBusinessName())
+//                            .status(status)
                             .pendingAmount(pending)
                             .build();
                 })
