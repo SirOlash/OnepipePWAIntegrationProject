@@ -223,7 +223,7 @@ public class PaymentService {
         tx.setTransactionDesc(payment.getDescription());
         tx.setTransactionRefParent(null);
 
-        tx.setDetails(new HashMap<>());
+//        tx.setDetails(new HashMap<>());
 
         BigDecimal amountInKobo = payment.getTotalAmount().multiply(new BigDecimal("100"));
         tx.setAmount(amountInKobo.setScale(0, RoundingMode.HALF_UP));
