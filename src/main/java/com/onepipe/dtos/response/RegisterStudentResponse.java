@@ -35,5 +35,4 @@ public class RegisterStudentResponse {
         private String expiryDate;
         private String qrCodeImage;
     }
-
 }

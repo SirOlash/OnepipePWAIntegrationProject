@@ -30,10 +30,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -104,13 +101,18 @@ public class PaymentService {
         if (description == null || description.isEmpty()) {
             description = category.name() + " payment for student " + student.getFirstName();
         }
+        PaymentType effectivePaymentType = paymentType;
+        if (PaymentCategory.SCHOOL_FEES.equals(category)) {
+            effectivePaymentType = student.getPreferredPaymentType();
+        }
+
 
         Payment.PaymentBuilder builder = Payment.builder()
                 .student(student)
                 .parent(student.getParent())
                 .branch(student.getBranch())
                 .category(category)
-                .paymentType(paymentType)
+                .paymentType(effectivePaymentType)
                 .status(PaymentStatus.PENDING)
                 .totalAmount(amount)
                 .completedPayments(0)
@@ -516,11 +518,14 @@ public class PaymentService {
     }
 
     private void validateNoExistingSchoolFeesPayment(Student student) {
+        List<PaymentStatus> ongoingStatuses = Arrays.asList(PaymentStatus.ACTIVE, PaymentStatus.PENDING);
+
         Optional<Payment> existingPayment = paymentRepository.findFirstByStudentAndCategoryAndStatusIn(
                 student,
                 PaymentCategory.SCHOOL_FEES,
-                ACTIVE_PAYMENT_STATUSES
+                ongoingStatuses
         );
+
         if (existingPayment.isPresent()) {
             Payment payment = existingPayment.get();
             throw new RuntimeException(
