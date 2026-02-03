@@ -271,7 +271,7 @@ public class PaymentService {
                     meta.setRepeatFrequency("daily");
                     meta.setRepeatStartDate(formatDate(LocalDateTime.now().plusDays(1)));
                     meta.setRepeatEndDate(formatDate(LocalDateTime.now().plusDays(3)));
-                    meta.setExpiresIn(60);
+//                    meta.setExpiresIn(60);
                 } else {
                     BigDecimal downPayment = payment.getDownPaymentAmount() != null
                             ? payment.getDownPaymentAmount().multiply(new BigDecimal("100"))
