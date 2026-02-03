@@ -2,7 +2,6 @@ package com.onepipe.integration.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import jakarta.transaction.Transaction;
 import lombok.Data;
 
 import java.math.BigDecimal;
