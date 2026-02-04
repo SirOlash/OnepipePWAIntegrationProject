@@ -1,5 +1,6 @@
 package com.onepipe.integration;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.onepipe.data.entities.Payment;
 import com.onepipe.dtos.request.CreateBranchRequest;
@@ -53,6 +54,15 @@ public class RealOnePipeClient implements OnepipeClient {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(apiKey);
         headers.set("Signature", signature);
+
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        mapper.setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL);
+        try {
+            System.out.println(">>> DEBUG JSON SENT TO ONEPIPE: " + mapper.writeValueAsString(request));
+        } catch (JsonProcessingException e) {
+            e.printStackTrace();
+        }
+
 
         HttpEntity<OnePipeInvoiceRequest> entity = new HttpEntity<>(request, headers);
 
