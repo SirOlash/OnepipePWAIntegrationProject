@@ -21,6 +21,8 @@ public class OnePipeInvoiceRequest {
     public static class Auth {
         private String type;
         private String secure;
+
+        @JsonProperty("auth_provider")
         private String authProvider = "PaywithAccount";
     }
 
