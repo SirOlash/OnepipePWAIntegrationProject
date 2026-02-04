@@ -181,7 +181,7 @@ public class PaymentService {
             case SUBSCRIPTION:
                 // For subscriptions, set the billing cycle
                 // Amount per cycle = total amount (this is the recurring amount)
-                builder.downPaymentAmount(amount);
+//                builder.downPaymentAmount(amount);
                 builder.amountPerCycle(amount);
                 builder.installmentFrequency(student.getInstallmentFrequency() != null
                         ? student.getInstallmentFrequency()
@@ -264,10 +264,10 @@ public class PaymentService {
             case SUBSCRIPTION:
                 meta.setType("subscription");
                 if (isDemoMode) {
-                    BigDecimal downPayment = payment.getDownPaymentAmount() != null
-                            ? payment.getDownPaymentAmount().multiply(new BigDecimal("100"))
-                            : payment.getTotalAmount().multiply(new BigDecimal("100"));
-                    meta.setDownPayment(downPayment);
+//                    BigDecimal downPayment = payment.getDownPaymentAmount() != null
+//                            ? payment.getDownPaymentAmount().multiply(new BigDecimal("100"))
+//                            : payment.getTotalAmount().multiply(new BigDecimal("100"));
+//                    meta.setDownPayment(downPayment);
                     meta.setRepeatFrequency("daily");
                     meta.setRepeatStartDate(formatDate(LocalDateTime.now().plusDays(1)));
                     meta.setRepeatEndDate(formatDate(LocalDateTime.now().plusDays(3)));
