@@ -230,8 +230,8 @@ Live Demo: https://greenfieldboardingschool.vercel.app
 
 ### 👨‍💻 Author
 Olasupo Emmanuel
-- LinkedIn: linkedin.com/in/sirolashemmanuel
-- GitHub: github.com/SirOlash
+- LinkedIn: https://linkedin.com/in/sirolashemmanuel
+- GitHub: https://github.com/SirOlash
 - Email: Olasupoemmanuel30@gmail.com
 
 ### 📄 License
