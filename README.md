@@ -6,7 +6,7 @@
 ![Docker](https://img.shields.io/badge/Docker-Containerized-blue?style=flat-square&logo=docker)
 ![OnePipe](https://img.shields.io/badge/OnePipe-PWA%20Integration-purple?style=flat-square)
 
-> A production-grade, multi-tenant payment infrastructure for boarding schools,
+> A deployed fintech integration demonstration with production-oriented security and payment-processing patterns, multi-tenant payment infrastructure for boarding schools,
 > built on top of **OnePipe's PayWithAccount (PWA) API Services**.
 
 ---
