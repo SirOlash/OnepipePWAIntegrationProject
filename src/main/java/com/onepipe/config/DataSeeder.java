@@ -8,12 +8,18 @@ import com.onepipe.data.repositories.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
+import java.util.Locale;
+
 @Component
+@ConditionalOnProperty(name = "app.demo.seed.enabled", havingValue = "true", matchIfMissing = false)
 @RequiredArgsConstructor
 public class DataSeeder implements CommandLineRunner {
+
+    private static final String DEMO_BRANCH_EMAIL = "branch-admin@example.invalid";
 
     private final UserRepository userRepository;
     private final BranchRepository branchRepository;
@@ -25,71 +31,77 @@ public class DataSeeder implements CommandLineRunner {
     @Value("${app.super-admin.password}")
     private String adminPassword;
 
+    @Value("${app.demo.branch-admin.password}")
+    private String branchAdminPassword;
+
     @Override
-    public void run(String... args) throws Exception {
+    public void run(String... args) {
+        requireSeedSetting(adminEmail, "app.super-admin.email");
+        requireSeedSetting(adminPassword, "app.super-admin.password");
+        requireSeedSetting(branchAdminPassword, "app.demo.branch-admin.password");
+        adminEmail = adminEmail.trim().toLowerCase(Locale.ROOT);
+        if (DEMO_BRANCH_EMAIL.equalsIgnoreCase(adminEmail)) {
+            throw new IllegalStateException("Demo super-admin and branch-admin emails must be different");
+        }
+
         seedSuperAdmin();
-        seedAbujaBranch();
+        seedDemoBranch();
+    }
+
+    private void requireSeedSetting(String value, String propertyName) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException("Demo seeding requires an explicit value for " + propertyName);
+        }
     }
 
     private void seedSuperAdmin() {
         if (userRepository.findByEmailIgnoreCase(adminEmail).isEmpty()) {
             User superAdmin = User.builder()
-                    .email(adminEmail.toLowerCase())
+                    .email(adminEmail)
                     .password(passwordEncoder.encode(adminPassword))
                     .role(Role.SUPER_ADMIN)
                     .build();
             userRepository.save(superAdmin);
-
-            System.out.println("✅ SUPER ADMIN CREATED: " + adminEmail);
+            System.out.println("Demo super-admin created.");
         } else {
-            System.out.println("ℹ️ Super Admin already exists.");
+            System.out.println("Super-admin already exists; credentials preserved.");
         }
-
     }
 
-    private void seedAbujaBranch() {
-        String branchEmail = "olasupoemmanuel30@gmail.com";
-        String billerCode = "000740";
-        String branchName = "Greenfield Abuja Campus";
-
-        if (branchRepository.findByAdminUser_EmailIgnoreCase(branchEmail).isEmpty() && userRepository.findByEmailIgnoreCase(branchEmail).isEmpty()) {
-
-            // 1. Create the Admin User
+    private void seedDemoBranch() {
+        if (branchRepository.findByAdminUser_EmailIgnoreCase(DEMO_BRANCH_EMAIL).isEmpty()
+                && userRepository.findByEmailIgnoreCase(DEMO_BRANCH_EMAIL).isEmpty()) {
             User branchAdmin = User.builder()
-                    .email(branchEmail)
-                    .password(passwordEncoder.encode("Greenabuja12345"))
+                    .email(DEMO_BRANCH_EMAIL)
+                    .password(passwordEncoder.encode(branchAdminPassword))
                     .role(Role.BRANCH_ADMIN)
                     .build();
             branchAdmin = userRepository.save(branchAdmin);
 
-            // 2. Create the Branch linked to this User
-            // We use dummy refs because this branch already exists on OnePipe side
+            // Synthetic local fixtures: these identify no real person, bank, or provider merchant.
             Branch branch = Branch.builder()
                     .adminUser(branchAdmin)
-                    .businessName(branchName)
-                    .businessShortName("GRN-ABJ")
-                    .billerCode(billerCode)
-                    .contactEmail(branchEmail)
-                    .contactFirstName("Adebola")
-                    .contactSurname("Oluwadare")
-                    .contactPhoneNumber("2347066905761")
-                    .businessAddress("Municipal Area Abuja")
-                    .whatsappNumber("07066905761")
-                    .settlementAccountNumber("7790058016")
-                    .settlementBankCode("214")
-
-                    // Fill required dummy data for DB constraints
-                    .rcNumber("0003")
-                    .tin("12345")
-                    .requestRef("HARDCODED_PWA_REF")
-                    .transactionRef("HARDCODED_PWA_TXN")
+                    .businessName("Greenfield Demo Campus")
+                    .businessShortName("GRN-DEMO")
+                    .billerCode("DEMO-NOT-A-REAL-BILLER")
+                    .contactEmail(DEMO_BRANCH_EMAIL)
+                    .contactFirstName("Demo")
+                    .contactSurname("Administrator")
+                    .contactPhoneNumber("00000000000")
+                    .businessAddress("Demonstration Campus, Example City")
+                    .whatsappNumber("00000000000")
+                    .settlementAccountNumber("0000000000")
+                    .settlementBankCode("000")
+                    .rcNumber("DEMO-RC-001")
+                    .tin("DEMO-TIN-001")
+                    .requestRef("DEMO-BRANCH-REF")
+                    .transactionRef("DEMO-BRANCH-TXN")
                     .build();
 
             branchRepository.save(branch);
-            System.out.println("✅ PWA BRANCH SEEDED: " + branchName);
+            System.out.println("Synthetic demo branch created.");
         } else {
-            System.out.println("ℹ️ PWA Branch already exists.");
+            System.out.println("Demo branch or administrator already exists; credentials preserved.");
         }
     }
-
 }

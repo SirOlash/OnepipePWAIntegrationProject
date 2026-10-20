@@ -38,3 +38,57 @@ build/
 .DS_Store
 
 .idea/
+
+### Private local configuration (keep shared configuration/examples tracked) ###
+.env
+.env.*
+!.env.example
+application-local*.properties
+application-local*.yml
+application-local*.yaml
+application-secrets*.properties
+application-secrets*.yml
+application-secrets*.yaml
+application-private*.properties
+application-private*.yml
+application-private*.yaml
+/config/
+/secrets/
+/.secrets/
+
+### Local databases, database exports, and logs ###
+*.db
+*.db.*
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.mv.db
+*.trace.db
+*.h2.db
+*.sql
+*.dump
+*.backup
+!/src/main/resources/db/migration/*.sql
+!/src/test/resources/**/*.sql
+/data/
+*.log
+/logs/
+
+### Private keys and credential stores ###
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.p8
+*.pk8
+*.ppk
+id_rsa*
+id_ed25519*
+id_ecdsa*
+id_dsa*
+.ssh/
+.aws/

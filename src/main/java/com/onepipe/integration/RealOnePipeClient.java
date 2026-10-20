@@ -35,6 +35,9 @@ public class RealOnePipeClient implements OnepipeClient {
     @Value("${onepipe.client-secret}")
     private String clientSecret;
 
+    @Value("${onepipe.webhook-url}")
+    private String webhookUrl;
+
     private final RestTemplate restTemplate = new RestTemplate();
 
     @Override
@@ -143,7 +146,7 @@ public class RealOnePipeClient implements OnepipeClient {
                                 .email(requestDetails.getAdminEmail())
                                 .build())
                         .meta(OnePipeMerchantRequest.Meta.builder()
-                                .webhookUrl("https://greenfield-backend-lkse.onrender.com/api/webhooks/onepipe")
+                                .webhookUrl(webhookUrl)
                                 .whatsappContactName(requestDetails.getContactFirstName())
                                 .whatsappContactNo(requestDetails.getWhatsappNumber())
                                 .businessShortName(requestDetails.getBusinessShortName())
