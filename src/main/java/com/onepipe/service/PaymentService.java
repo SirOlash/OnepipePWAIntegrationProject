@@ -19,9 +19,7 @@ import com.onepipe.integration.OnepipeClient;
 import com.onepipe.integration.dto.OnePipeInvoiceRequest;
 import com.onepipe.integration.dto.OnePipeQueryResponse;
 import com.onepipe.integration.dto.OnePipeResponse;
-import com.onepipe.utils.EncryptionUtil;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,9 +40,6 @@ public class PaymentService {
     private final StudentRepository studentRepository;
     private final ParentRepository parentRepository;
     private final BranchRepository branchRepository;
-
-    @Value("${onepipe.client-secret}")
-    private String clientSecret;
 
     private static final List<PaymentStatus> ACTIVE_PAYMENT_STATUSES = List.of(
             PaymentStatus.PENDING,
@@ -70,7 +65,7 @@ public class PaymentService {
                 .description("School Fees for " + student.getClassGrade().name());
 
         String requestRef = UUID.randomUUID().toString();
-        String transactionRef = "SCH-" + System.currentTimeMillis();
+        String transactionRef = "SCH-" + UUID.randomUUID();
 
         builder.requestRef(requestRef);
         builder.transactionRef(transactionRef);
@@ -120,7 +115,7 @@ public class PaymentService {
 
         // Generate unique references
         builder.requestRef(UUID.randomUUID().toString());
-        builder.transactionRef(category.name() + "-" + System.currentTimeMillis());
+        builder.transactionRef(category.name() + "-" + UUID.randomUUID());
 
         // ✅ HANDLE ALL PAYMENT TYPES
         configurePaymentDetails(builder,effectivePaymentType, amount, student);
@@ -199,23 +194,10 @@ public class PaymentService {
     // --- 2. Centralized Method to Call API ---
     public Payment initiatePaymentRequest(Payment payment) {
 
-        boolean isDemoMode = true; // TOGGLE THIS FOR DEMO
+        boolean isDemoMode = true; // Legacy schedule/pricing behavior; provider selection uses onepipe.mode.
 
         OnePipeInvoiceRequest request = new OnePipeInvoiceRequest();
         request.setRequestRef(payment.getRequestRef());
-
-        OnePipeInvoiceRequest.Auth auth = new OnePipeInvoiceRequest.Auth();
-        if (payment.getPaymentType() == PaymentType.SINGLE_PAYMENT) {
-            auth.setType(null);
-            auth.setSecure(null);
-        } else {
-            auth.setType("bank.account");
-            auth.setSecure(EncryptionUtil.encryptTripleDES(
-                    payment.getParent().getBankAccountNumber() + ";" + payment.getParent().getBankCode(),
-                    clientSecret
-            ));
-        }
-        request.setAuth(auth);
 
         // --- Transaction ---
         OnePipeInvoiceRequest.Transaction tx = new OnePipeInvoiceRequest.Transaction();
@@ -288,7 +270,7 @@ public class PaymentService {
         request.setTransaction(tx);
 
 
-        OnePipeResponse response = onePipeClient.sendInvoice(request);
+        OnePipeResponse response = onePipeClient.sendInvoice(request, payment);
 
         payment.setVirtualAccountNumber(response.getVirtualAccountNumber());
         payment.setVirtualAccountName(response.getVirtualAccountName());

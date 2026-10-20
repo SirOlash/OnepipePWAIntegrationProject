@@ -1,14 +1,13 @@
 package com.onepipe.integration;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.onepipe.data.entities.Payment;
+import com.onepipe.data.enums.PaymentType;
 import com.onepipe.dtos.request.CreateBranchRequest;
 import com.onepipe.integration.dto.*;
 import com.onepipe.utils.EncryptionUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Primary;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -22,7 +21,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @Service
-@Primary
+@ConditionalOnProperty(prefix = "onepipe", name = "mode", havingValue = "real")
 @RequiredArgsConstructor
 public class RealOnePipeClient implements OnepipeClient {
 
@@ -39,6 +38,20 @@ public class RealOnePipeClient implements OnepipeClient {
     private String webhookUrl;
 
     private final RestTemplate restTemplate = new RestTemplate();
+
+    @Override
+    public OnePipeResponse sendInvoice(OnePipeInvoiceRequest request, Payment payment) {
+        OnePipeInvoiceRequest.Auth auth = new OnePipeInvoiceRequest.Auth();
+        if (payment.getPaymentType() != PaymentType.SINGLE_PAYMENT) {
+            auth.setType("bank.account");
+            auth.setSecure(EncryptionUtil.encryptTripleDES(
+                    payment.getParent().getBankAccountNumber() + ";" + payment.getParent().getBankCode(),
+                    clientSecret
+            ));
+        }
+        request.setAuth(auth);
+        return sendInvoice(request);
+    }
 
     @Override
     public OnePipeResponse sendInvoice(OnePipeInvoiceRequest request) {
@@ -58,15 +71,6 @@ public class RealOnePipeClient implements OnepipeClient {
         headers.setBearerAuth(apiKey);
         headers.set("Signature", signature);
 
-        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-        mapper.setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL);
-        try {
-            System.out.println(">>> DEBUG JSON SENT TO ONEPIPE: " + mapper.writeValueAsString(request));
-        } catch (JsonProcessingException e) {
-            e.printStackTrace();
-        }
-
-
         HttpEntity<OnePipeInvoiceRequest> entity = new HttpEntity<>(request, headers);
 
 
@@ -75,8 +79,6 @@ public class RealOnePipeClient implements OnepipeClient {
             // OnePipe returns a flexible JSON, so we map it to a generic Map first to be safe
             ResponseEntity<Map> responseEntity = restTemplate.postForEntity(url, entity, Map.class);
             Map<String, Object> body = responseEntity.getBody();
-
-            System.out.println(">>> ONEPIPE RAW RESPONSE: " + body);
 
             if (body == null) {
                 throw new RuntimeException("OnePipe returned empty body");
@@ -124,8 +126,7 @@ public class RealOnePipeClient implements OnepipeClient {
                     .createdOn((String) providerResp.get("created_on"))
                     .build();
         } catch (Exception e) {
-            e.printStackTrace();
-            throw new RuntimeException("OnePipe API Call Failed: " + e.getMessage());
+            throw new RuntimeException("OnePipe invoice request failed");
         }
     }
 
@@ -174,8 +175,6 @@ public class RealOnePipeClient implements OnepipeClient {
 
         HttpEntity<OnePipeMerchantRequest> entity = new HttpEntity<>(request, headers);
 
-        System.out.println(">>> CREATING MERCHANT ON ONEPIPE: " + requestDetails.getBusinessName());
-
         try {
             ResponseEntity<Map> responseEntity = restTemplate.postForEntity(url, entity, Map.class);
             Map<String, Object> body = responseEntity.getBody();
@@ -187,15 +186,13 @@ public class RealOnePipeClient implements OnepipeClient {
 
                 return (String) meta.get("biller_code");
             } else {
-                throw new RuntimeException("OnePipe Merchant Creation Failed: " + body.get("message"));
+                throw new RuntimeException("OnePipe merchant creation was not successful");
             }
 
         } catch (HttpClientErrorException e) {
-            e.printStackTrace();
-//            throw new RuntimeException("API Call Failed: " + e.getMessage());
             throw new ResponseStatusException(
                     e.getStatusCode(),
-                    e.getResponseBodyAsString()
+                    "OnePipe merchant request failed"
             );
 
         }
@@ -249,7 +246,6 @@ public class RealOnePipeClient implements OnepipeClient {
             }
             return false;
         } catch (Exception e) {
-            e.printStackTrace();
             return false;
         }
     }
@@ -297,8 +293,7 @@ public class RealOnePipeClient implements OnepipeClient {
                         .build();
 
             } catch (Exception e) {
-                e.printStackTrace();
-                throw new RuntimeException("Query Call Failed: " + e.getMessage());
+                throw new RuntimeException("OnePipe query request failed");
             }
         }
 }

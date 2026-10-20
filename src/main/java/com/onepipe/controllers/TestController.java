@@ -6,6 +6,7 @@ import com.onepipe.integration.dto.OnePipeResponse;
 import com.onepipe.utils.EncryptionUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -15,6 +16,7 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 @RestController
+@ConditionalOnProperty(prefix = "onepipe", name = "mode", havingValue = "real")
 @RequestMapping("/api/test")
 @RequiredArgsConstructor
 public class TestController {
@@ -90,16 +92,13 @@ public class TestController {
 
             request.setTransaction(tx);
 
-            System.out.println("Sending Request to OnePipe: " + request); // Debug log
-
             // Call Client
             OnePipeResponse response = onePipeClient.sendInvoice(request);
 
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            e.printStackTrace(); // Print full error to console
-            return ResponseEntity.internalServerError().body("OnePipe Call Failed: " + e.getMessage());
+            return ResponseEntity.internalServerError().body("OnePipe diagnostic request failed");
         }
     }
 }
