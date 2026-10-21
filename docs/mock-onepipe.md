@@ -1,7 +1,8 @@
 # Mock OnePipe demonstration
 
 `onepipe.mode=${ONEPIPE_MODE:mock}` selects the payment adapter. The default is
-`mock`; `real` is an explicit opt-in. Values are case-insensitive. Empty values,
+`mock`; `real` is an explicit opt-in permitted only under the `dev` profile.
+The `test` and `hosted` profiles require mock mode. Values are case-insensitive. Empty values,
 surrounding whitespace, unsupported values, or anything other than exactly one
 selected provider cause startup to fail with a configuration error.
 
@@ -12,19 +13,26 @@ generated private Base64 signing key containing at least 32 random bytes.
 Seeding remains disabled unless explicitly enabled with the Task 1 settings.
 Spring Boot does not automatically load a `.env` file.
 
-## Safe local startup before Task 3
+## Local startup
 
-Database/profile separation is still pending. Until then, explicitly override the
-existing PostgreSQL dialect when running against the H2 in-memory default:
+Select exactly one profile explicitly: `dev`, `test` or `hosted`. Missing,
+unsupported or mixed profiles fail startup; there is no implicit H2 fallback for
+hosted use. After [generating a private JWT key](../README.md#2-set-environment-variables),
+run the local H2 demo with:
 
 ```sh
 # Set JWT_SECRET privately in your shell first; do not paste it into tracked files.
 # No OnePipe environment variables are needed.
-mvn spring-boot:run -Dspring-boot.run.arguments="--onepipe.mode=mock --spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect --server.address=127.0.0.1"
+mvn spring-boot:run "-Dspring-boot.run.profiles=dev"
 ```
 
-This override is temporary local configuration, not a new database profile.
-Do not use an in-memory database as persistent hosted storage.
+The `dev` profile selects H2, creates a temporary schema and binds HTTP to
+`127.0.0.1`. No manual dialect override is needed. The `test` profile uses isolated
+H2 databases and disallows demo seeding. The `hosted` profile requires supplied
+PostgreSQL settings and an existing compatible schema. It cannot initialize an
+empty database until later migrations are implemented. See
+[configuration details](configuration.md) for IDE setup, hosted prerequisites and
+the test command. No hosted deployment or database connection has been verified.
 
 ## Mock behavior
 
@@ -58,7 +66,7 @@ reconciliation, and payment calculations are not repaired by this adapter change
 
 ## Real adapter boundary
 
-Only `real` mode creates `RealOnePipeClient` and the legacy `/api/test` diagnostics.
+Only explicit `real` mode under `dev` creates `RealOnePipeClient` and the legacy `/api/test` diagnostics.
 It requires the environment-backed provider settings in
 `application-example.properties`. Merely starting that adapter does not validate
 the historical provider contract. Do not exercise real financial operations as
