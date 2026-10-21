@@ -9,10 +9,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.context.PropertyPlaceholderAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.core.env.StandardEnvironment;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -40,6 +42,13 @@ class DataSeederTest {
     private final BranchRepository branchRepository = mock(BranchRepository.class);
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
+            .withInitializer(context -> {
+                context.getEnvironment().getPropertySources()
+                        .remove(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);
+                context.getEnvironment().getPropertySources()
+                        .remove(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME);
+                context.getEnvironment().setActiveProfiles("dev");
+            })
             .withConfiguration(AutoConfigurations.of(PropertyPlaceholderAutoConfiguration.class))
             .withUserConfiguration(DataSeeder.class)
             .withBean(UserRepository.class, () -> userRepository)
@@ -60,6 +69,53 @@ class DataSeederTest {
             assertThat(context).hasNotFailed().doesNotHaveBean(DataSeeder.class);
             verifyNoInteractions(userRepository, branchRepository);
         });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "test", "hosted", "unknown", "dev,test", "dev,hosted"})
+    void automaticSeedingIsExcludedOutsideDevelopmentEvenWhenEnabled(String profiles) {
+        contextRunner.withPropertyValues("app.demo.seed.enabled=true")
+                .withInitializer(context -> context.getEnvironment().setActiveProfiles(
+                        profiles.isEmpty() ? new String[0] : profiles.split(",")))
+                .run(context -> {
+                    assertThat(context).hasNotFailed().doesNotHaveBean(DataSeeder.class);
+                    verifyNoInteractions(userRepository, branchRepository);
+                });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"app.super-admin.email", "app.super-admin.password", "app.demo.branch-admin.password"})
+    void missingRequiredSettingsFailBeforeRepositoryAccess(String missingProperty) {
+        List<String> properties = new java.util.ArrayList<>(List.of("app.demo.seed.enabled=true"));
+        java.util.Map.of(
+                "app.super-admin.email", ADMIN_EMAIL,
+                "app.super-admin.password", randomPassword(),
+                "app.demo.branch-admin.password", randomPassword()
+        ).forEach((name, value) -> {
+            if (!name.equals(missingProperty)) {
+                properties.add(name + "=" + value);
+            }
+        });
+        contextRunner.withPropertyValues(properties.toArray(String[]::new)).run(context -> {
+            assertThat(context).hasNotFailed().hasSingleBean(DataSeeder.class);
+            assertThatIllegalStateException().isThrownBy(() -> context.getBean(DataSeeder.class).run())
+                    .withMessageContaining(missingProperty);
+            verifyNoInteractions(userRepository, branchRepository);
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"app.super-admin.email", "app.super-admin.password", "app.demo.branch-admin.password"})
+    void unresolvedSeedSettingsDoNotExposeTheirSuppliedValues(String property) {
+        String marker = "test-only-" + UUID.randomUUID();
+        configuredRunner(ADMIN_EMAIL, randomPassword(), randomPassword())
+                .withPropertyValues(property + "=" + marker + "${MISSING_DEMO_VALUE}")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThatIllegalStateException().isThrownBy(() -> context.getBean(DataSeeder.class).run())
+                            .withMessageContaining(property).withMessageNotContaining(marker).withNoCause();
+                    verifyNoInteractions(userRepository, branchRepository);
+                });
     }
 
     @ParameterizedTest
@@ -126,9 +182,15 @@ class DataSeederTest {
         String branchHash = passwordEncoder.encode(originalBranchPassword);
         User admin = User.builder().email(ADMIN_EMAIL).password(adminHash).role(Role.SUPER_ADMIN).build();
         User branchAdmin = User.builder().email(BRANCH_EMAIL).password(branchHash).role(Role.BRANCH_ADMIN).build();
-        Branch branch = Branch.builder().adminUser(branchAdmin).build();
+        admin.setId(1L);
+        branchAdmin.setId(2L);
+        Branch branch = demoBranch(branchAdmin);
+        branch.setId(3L);
         when(userRepository.findByEmailIgnoreCase(ADMIN_EMAIL)).thenReturn(Optional.of(admin));
-        when(branchRepository.findByAdminUser_EmailIgnoreCase(BRANCH_EMAIL)).thenReturn(Optional.of(branch));
+        when(userRepository.findByEmailIgnoreCase(BRANCH_EMAIL)).thenReturn(Optional.of(branchAdmin));
+        when(branchRepository.findByAdminUser(branchAdmin)).thenReturn(Optional.of(branch));
+        when(branchRepository.findByRequestRefOrTransactionRefOrRcNumber(
+                "DEMO-BRANCH-REF", "DEMO-BRANCH-TXN", "DEMO-RC-001")).thenReturn(List.of(branch));
 
         configuredRunner(ADMIN_EMAIL, randomPassword(), randomPassword()).run(context -> {
             assertThat(context).hasNotFailed().hasSingleBean(DataSeeder.class);
@@ -140,8 +202,28 @@ class DataSeederTest {
             verify(branchRepository, never()).save(any(Branch.class));
             assertThat(admin.getPassword()).isEqualTo(adminHash);
             assertThat(branchAdmin.getPassword()).isEqualTo(branchHash);
+            assertThat(admin.getRole()).isEqualTo(Role.SUPER_ADMIN);
+            assertThat(branchAdmin.getRole()).isEqualTo(Role.BRANCH_ADMIN);
             assertBcryptPassword(admin.getPassword(), originalAdminPassword);
             assertBcryptPassword(branchAdmin.getPassword(), originalBranchPassword);
+        });
+    }
+
+    @ParameterizedTest
+    @MethodSource("conflictingRoles")
+    void conflictingRolesAreRejectedWithoutPromotingOrWritingAccounts(String email, Role role) {
+        String originalHash = passwordEncoder.encode(randomPassword());
+        User existing = User.builder().email(email).password(originalHash).role(role).build();
+        when(userRepository.findByEmailIgnoreCase(email)).thenReturn(Optional.of(existing));
+
+        configuredRunner(ADMIN_EMAIL, randomPassword(), randomPassword()).run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThatIllegalStateException().isThrownBy(() -> context.getBean(DataSeeder.class).run())
+                    .withMessageContaining("unexpected role");
+            verify(userRepository, never()).save(any(User.class));
+            verifyNoInteractions(branchRepository);
+            assertThat(existing.getPassword()).isEqualTo(originalHash);
+            assertThat(existing.getRole()).isEqualTo(role);
         });
     }
 
@@ -175,6 +257,27 @@ class DataSeederTest {
 
     private static String randomPassword() {
         return UUID.randomUUID().toString();
+    }
+
+    private static Branch demoBranch(User owner) {
+        return Branch.builder().adminUser(owner)
+                .businessName("Greenfield Demo Campus").businessShortName("GRN-DEMO")
+                .billerCode("DEMO-NOT-A-REAL-BILLER").contactEmail(BRANCH_EMAIL)
+                .contactFirstName("Demo").contactSurname("Administrator")
+                .contactPhoneNumber("00000000000").businessAddress("Demonstration Campus, Example City")
+                .whatsappNumber("00000000000").settlementAccountNumber("0000000000").settlementBankCode("000")
+                .rcNumber("DEMO-RC-001").tin("DEMO-TIN-001")
+                .requestRef("DEMO-BRANCH-REF").transactionRef("DEMO-BRANCH-TXN").build();
+    }
+
+    private static Stream<Arguments> conflictingRoles() {
+        return Stream.of(
+                Arguments.of(ADMIN_EMAIL, Role.PARENT),
+                Arguments.of(ADMIN_EMAIL, Role.BRANCH_ADMIN),
+                Arguments.of(ADMIN_EMAIL, null),
+                Arguments.of(BRANCH_EMAIL, Role.PARENT),
+                Arguments.of(BRANCH_EMAIL, Role.SUPER_ADMIN),
+                Arguments.of(BRANCH_EMAIL, null));
     }
 
     private static Stream<Arguments> blankRequiredSettings() {

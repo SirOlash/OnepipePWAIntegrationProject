@@ -38,7 +38,7 @@ mvn spring-boot:run "-Dspring-boot.run.profiles=dev"
 This explicitly selects [application-dev.properties](../src/main/resources/application-dev.properties).
 The schema and records are temporary; stopping the application loses H2 data.
 There are no bundled privileged-account passwords. Demo seeding stays disabled
-unless explicitly enabled and supplied with all required seed settings.
+unless explicitly enabled under `dev` and supplied with all required seed settings.
 
 Spring Boot does not automatically load a `.env` file or the repository's
 [application-example.properties](../application-example.properties). That file is
@@ -130,12 +130,77 @@ mock. See [mock behavior](mock-onepipe.md) for that boundary.
 
 ## Demo seeding
 
-Seeding is off by default. Outside the `test` profile, explicit opt-in requires
-`DEMO_SEED_ENABLED=true` and private, nonblank values for `SUPER_ADMIN_EMAIL`,
-`SUPER_ADMIN_PASSWORD` and `DEMO_BRANCH_ADMIN_PASSWORD`. The super-admin email must
-differ from the synthetic branch-admin identity. The seeder hashes passwords with
-BCrypt and preserves existing account passwords; changing configuration does not
-rotate them. It does not initialize a missing hosted database schema.
+Ordinary startup must not create privileged accounts with publicly known
+credentials. The automatic `DataSeeder` component therefore requires both the
+`dev` profile and `DEMO_SEED_ENABLED=true`. It is excluded when `test` or `hosted`
+is active, including mixed selections; the existing environment validator still
+rejects mixed profiles and any test-profile seeding override. Hosted excludes the
+seeder even if its opt-in flag and credentials are accidentally supplied.
+
+For an explicitly requested local seed, supply these privately in the shell or
+IntelliJ run configuration before launching with the normal `dev` instructions:
+
+| Setting | Meaning |
+|:--------|:--------|
+| `DEMO_SEED_ENABLED` | Set to `true` to request initialization |
+| `SUPER_ADMIN_EMAIL` | Stable super-admin identity, distinct from the branch-admin email |
+| `SUPER_ADMIN_PASSWORD` | Password to hash when creating a new super-admin |
+| `DEMO_BRANCH_ADMIN_PASSWORD` | Password for a new branch-admin, or the existing password for orphan recovery |
+| `JWT_SECRET` | The application's usual private signing key; not a seed credential |
+
+All three account settings must be nonblank before repository reads or writes. Passwords are
+hashed through the existing BCrypt encoder; none are published, printed, or
+supplied as reusable defaults. Existing user emails, password hashes and roles
+are never changed by initialization. An existing super-admin is accepted only
+with `SUPER_ADMIN` role and no branch assignment. Changing a configured password
+does not rotate the stored password or grant access to an existing account.
+
+The stable branch-admin identity is `branch-admin@example.invalid`. The fixture
+keeps the original synthetic campus details and reserves these unique fields:
+
+| Branch field | Reserved demonstration identifier |
+|:-------------|:----------------------------------|
+| `requestRef` | `DEMO-BRANCH-REF` |
+| `transactionRef` | `DEMO-BRANCH-TXN` |
+| `rcNumber` | `DEMO-RC-001` |
+
+The super-admin email is trimmed and lowercased for lookup and creation. Keep it
+stable between runs: changing it targets another identity, not an account rename.
+Repeated calls query the database using these identities and existing uniqueness
+constraints, reuse completed records and preserve the existing association. No
+in-memory completion flag is used, and no provider requests or payment fixtures
+are generated.
+
+The public Spring-managed `DataSeeder.run` method is transactional. The startup
+runner calls it through Spring's transaction proxy, rather than self-invoking a
+private annotated method. Configuration and all discovered identity conflicts
+are checked before any writes. New administrators, branch creation, and any
+relationship repair share one transaction. A failure rolls back every change
+from that attempt, including when a uniqueness constraint fails at commit.
+
+Partial-state handling is deliberately conservative:
+
+| Existing state | Result |
+|:---------------|:-------|
+| Valid super-admin only | Preserve it; create the missing branch-admin and branch |
+| Branch-admin with no branch | Require `BRANCH_ADMIN` and its current password; create the missing branch |
+| Complete matching branch and branch-admin, missing super-admin | Preserve the branch and its owner; create the configured super-admin |
+| Fully matching synthetic branch with no owner | Link a new demo branch-admin, or an existing orphan only after password verification |
+| Unexpected role, another owner/branch, ambiguous email, split identifiers, or changed fixture data | Fail without overwriting existing data |
+
+An email match alone cannot justify attaching an account to a branch. An
+orphaned branch-admin must prove ownership through the supplied current password
+and must have no other branch assignment. A completed fixture must already belong
+to that same database user and match all synthetic fixture fields. The seeder
+never promotes a user, resets a password, reassigns another owner's branch, or
+rewrites edited branch details to force a match. If ownership cannot be proved,
+initialization stops and the records require deliberate manual investigation.
+
+Concurrent attempts can encounter an existing uniqueness constraint and fail;
+the failed attempt rolls back. There is no distributed initialization lock or
+automatic retry. H2 remains disposable, and repeated seeding within a running
+database does not make dev data persistent. This does not implement hosted
+recruiter accounts, hosted schema initialization, or database migrations.
 
 These remain synthetic portfolio fixtures. Profile separation does not repair
 the existing public webhook, missing ownership checks, durable webhook

@@ -70,8 +70,10 @@ checks exist; full authorization and tenant isolation are not established.
 ## Security and limitations
 
 - JWT signing requires a privately supplied key; no shared signing key is bundled.
-- Demo seeding is disabled by default. Explicit opt-in requires supplied
-  credentials, stores BCrypt password hashes and preserves existing passwords.
+- Demo seeding is disabled by default and restricted to `dev`. Explicit opt-in
+  requires private credentials. Initialization is transactional, preserves
+  existing passwords and roles, and rejects conflicting identities or ownership.
+  Hosted startup never runs the seeder, even if its opt-in flag is enabled.
 - Branch creation and super-admin statistics enforce `SUPER_ADMIN` method checks.
   Other student/payment routes generally require authentication but do not
   consistently bind requested branch, parent, student or payment identifiers to
@@ -195,6 +197,23 @@ In IntelliJ, set the Spring Boot run configuration's **Active profiles** to `dev
 and add `JWT_SECRET` privately under **Environment variables**. Do not share a run
 configuration containing secrets. See [IDE setup](docs/configuration.md#intellij).
 
+To create local demonstration accounts, explicitly set `DEMO_SEED_ENABLED=true`
+under `dev` and privately supply `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD` and
+`DEMO_BRANCH_ADMIN_PASSWORD`, alongside `JWT_SECRET`. No passwords are published
+because shared privileged credentials would make a public deployment unsafe.
+The synthetic branch-admin identity is `branch-admin@example.invalid`; the
+super-admin email must differ. In IntelliJ, set these values privately in the run
+configuration's environment; in Maven, inherit them from the current shell.
+
+Repeat runs reuse the same accounts and reserved branch identifiers without
+resetting passwords or roles. An orphaned branch-admin account can be repaired
+only when its existing password proves ownership and it owns no other branch.
+Conflicts fail without overwriting existing data; a failure rolls back the whole
+initialization attempt. See [demo seeding](docs/configuration.md#demo-seeding)
+for the identifiers, other partial-state rules and concurrency limitations.
+H2 data still disappears when the dev application stops. Hosted recruiter
+account provisioning remains unimplemented.
+
 ### 4. Run with Docker
 
 ```bash
@@ -237,10 +256,10 @@ repair the limitations above.
 | `DB_URL` | PostgreSQL JDBC URL with the database's required connection options; no fallback | `hosted` |
 | `DB_USERNAME` | Privately supplied database username; no fallback | `hosted` |
 | `DB_PASSWORD` | Privately supplied database password; no fallback | `hosted` |
-| `DEMO_SEED_ENABLED` | Explicit opt-in; defaults to `false` | Optional |
-| `SUPER_ADMIN_EMAIL` | Supplied super-admin identity | Enabled seeding |
-| `SUPER_ADMIN_PASSWORD` | Supplied private super-admin password | Enabled seeding |
-| `DEMO_BRANCH_ADMIN_PASSWORD` | Supplied private branch password | Enabled seeding |
+| `DEMO_SEED_ENABLED` | Explicit dev-only opt-in; defaults to `false`; hosted ignores it | Optional |
+| `SUPER_ADMIN_EMAIL` | Stable, supplied super-admin identity | Enabled dev seeding |
+| `SUPER_ADMIN_PASSWORD` | Supplied private super-admin password; never rotates an existing password | Enabled dev seeding |
+| `DEMO_BRANCH_ADMIN_PASSWORD` | Private branch password; must match an existing orphaned account to repair it | Enabled dev seeding |
 
 Do not reuse historical internship credentials. The `hosted` profile fixes the
 PostgreSQL driver and validates an existing schema; `DB_DRIVER_CLASS` is not used.
