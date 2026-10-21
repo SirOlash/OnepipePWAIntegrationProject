@@ -11,11 +11,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 import java.math.BigDecimal;
 import java.util.UUID;
 
 @RestController
+@PreAuthorize("hasRole('SUPER_ADMIN')")
 @ConditionalOnProperty(prefix = "onepipe", name = "mode", havingValue = "real")
 @RequestMapping("/api/test")
 @RequiredArgsConstructor

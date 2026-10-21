@@ -20,6 +20,8 @@ import com.onepipe.integration.dto.OnePipeInvoiceRequest;
 import com.onepipe.integration.dto.OnePipeQueryResponse;
 import com.onepipe.integration.dto.OnePipeResponse;
 import lombok.RequiredArgsConstructor;
+import com.onepipe.security.ResourceAuthorization;
+import com.onepipe.exceptions.customExceptions.ResourceConflictException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,6 +42,7 @@ public class PaymentService {
     private final StudentRepository studentRepository;
     private final ParentRepository parentRepository;
     private final BranchRepository branchRepository;
+    private final ResourceAuthorization authorization;
 
     private static final List<PaymentStatus> ACTIVE_PAYMENT_STATUSES = List.of(
             PaymentStatus.PENDING,
@@ -48,7 +51,8 @@ public class PaymentService {
 
     // --- 1. Called when a Student Registers ---
     @Transactional
-    public Payment createInitialSchoolFeesPayment(Student student) {
+    Payment createInitialSchoolFeesPayment(Student student) {
+        // Internal registration path: StudentService has verified a new or owned parent.
         validateNoExistingSchoolFeesPayment(student);
 
         BigDecimal totalFee = student.getClassGrade().getDefaultFee();
@@ -87,8 +91,7 @@ public class PaymentService {
                                                      PaymentType paymentType,
                                                      String description) {
 
-        Student student = studentRepository.findById(studentId)
-                .orElseThrow(() -> new RuntimeException("Student not found with ID: " + studentId));
+        Student student = authorization.student(studentId);
 
         if (category == PaymentCategory.SCHOOL_FEES) {
             validateNoExistingSchoolFeesPayment(student);
@@ -192,7 +195,7 @@ public class PaymentService {
 
 
     // --- 2. Centralized Method to Call API ---
-    public Payment initiatePaymentRequest(Payment payment) {
+    private Payment initiatePaymentRequest(Payment payment) {
 
         boolean isDemoMode = true; // Legacy schedule/pricing behavior; provider selection uses onepipe.mode.
 
@@ -310,15 +313,14 @@ public class PaymentService {
 
     @Transactional
     public void cancelSubscription(String onePipeId) {
-        Payment payment = paymentRepository.findByOnePipePaymentId(onePipeId)
-                .orElseThrow(() -> new RuntimeException("Payment not found with OnePipe ID: " + onePipeId));
+        Payment payment = authorization.payment(onePipeId);
 
         if (payment.getPaymentType() != PaymentType.SUBSCRIPTION) {
-            throw new RuntimeException("Only Subscriptions can be cancelled");
+            throw new ResourceConflictException("Only subscriptions can be cancelled");
         }
 
         if (payment.getStatus() == PaymentStatus.CANCELLED) {
-            throw new RuntimeException("Subscription is already cancelled");
+            throw new ResourceConflictException("Subscription is already cancelled");
         }
 
         boolean success = onePipeClient.cancelMandate(payment);
@@ -331,14 +333,16 @@ public class PaymentService {
         }
     }
 
+    @Transactional(readOnly = true)
     public List<BranchPaymentDto> getPaymentsByBranch(Long branchId) {
-        Branch branch = branchRepository.findById(branchId)
-                .orElseThrow(() -> new RuntimeException("Branch not found"));
+        Branch branch = authorization.branch(branchId);
+        List<Payment> records = paymentRepository.findByBranch(branch);
+        authorization.checkPayments(records);
 
         // Define date format for the UI
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
-        return paymentRepository.findByBranch(branch).stream()
+        return records.stream()
                 .map(payment -> BranchPaymentDto.builder()
                         .id(payment.getId())
                         .studentName(payment.getStudent() != null
@@ -356,12 +360,15 @@ public class PaymentService {
                 .collect(Collectors.toList());
     }
 
-    public List<Payment> getPaymentsForStudent(Student student) {
-        return paymentRepository.findByStudent(student);
+    List<Payment> getPaymentsForStudent(Student student) {
+        Student trustedStudent = authorization.student(student.getId());
+        List<Payment> records = paymentRepository.findByStudent(trustedStudent);
+        authorization.checkPayments(records);
+        return records;
     }
 
-    public Payment getSchoolFeesPayment(Student student) {
-        return paymentRepository.findByStudent(student).stream()
+    Payment getSchoolFeesPayment(Student student) {
+        return getPaymentsForStudent(student).stream()
                 .filter(p -> p.getCategory() == PaymentCategory.SCHOOL_FEES)
                 .findFirst()
                 .orElse(null);
@@ -394,13 +401,15 @@ public class PaymentService {
         return payment.getTotalAmount().subtract(paidSoFar).max(BigDecimal.ZERO);
     }
 
+    @Transactional(readOnly = true)
     public List<ParentPaymentDto> getPaymentsForChild(Long studentId) {
-        Student student = studentRepository.findById(studentId)
-                .orElseThrow(() -> new RuntimeException("Student not found"));
+        Student student = authorization.student(studentId);
+        List<Payment> records = paymentRepository.findByStudent(student);
+        authorization.checkPayments(records);
 
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
-        return paymentRepository.findByStudent(student).stream()
+        return records.stream()
                 .map(p -> ParentPaymentDto.builder()
                         .onePipePaymentId(p.getOnePipePaymentId())
                         .description(p.getDescription())
@@ -459,9 +468,9 @@ public class PaymentService {
         }
     }
 
+    @Transactional
     public OnePipeQueryResponse queryAndFixPaymentStatus(String onePipeId) {
-        Payment payment = paymentRepository.findByOnePipePaymentId(onePipeId)
-                .orElseThrow(() -> new RuntimeException("Payment not found with OnePipe ID: " + onePipeId));
+        Payment payment = authorization.payment(onePipeId);
 
         String returnMessage;
         // Optimization: If already successful, don't bother querying
@@ -515,29 +524,20 @@ public class PaymentService {
         );
 
         if (existingPayment.isPresent()) {
-            Payment payment = existingPayment.get();
-            throw new RuntimeException(
-                    String.format("Student '%s %s' already has a %s school fees payment (ID: %s). " +
-                                    "Complete or cancel it before creating a new one.",
-                            student.getFirstName(),
-                            student.getSurname(),
-                            payment.getStatus().name().toLowerCase(),
-                            payment.getOnePipePaymentId())
-            );
+            throw new ResourceConflictException("An ongoing school fees payment prevents this operation");
         }
     }
 
         @Transactional
         public void updatePaymentPlan(Long studentId, SwitchPlanRequest request) {
-            Student student = studentRepository.findById(studentId)
-                    .orElseThrow(() -> new RuntimeException("Student not found"));
+            Student student = authorization.ownStudent(studentId);
 
             boolean hasActiveOrPending = paymentRepository.findByStudent(student).stream()
                     .filter(p -> p.getCategory() == PaymentCategory.SCHOOL_FEES)
                     .anyMatch(p -> p.getStatus() == PaymentStatus.PENDING || p.getStatus() == PaymentStatus.ACTIVE);
 
             if (hasActiveOrPending) {
-                throw new RuntimeException("Cannot switch plan. Student has a Pending or Active School Fee.");
+                throw new ResourceConflictException("An ongoing school fees payment prevents this operation");
             }
 
             if (request.getNewPaymentType() == PaymentType.INSTALLMENT ||

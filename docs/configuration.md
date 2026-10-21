@@ -202,7 +202,7 @@ automatic retry. H2 remains disposable, and repeated seeding within a running
 database does not make dev data persistent. This does not implement hosted
 recruiter accounts, hosted schema initialization, or database migrations.
 
-These remain synthetic portfolio fixtures. Profile separation does not repair
-the existing public webhook, missing ownership checks, durable webhook
-idempotency or legacy payment calculations documented in the
-[README](../README.md#security-and-limitations).
+These remain synthetic portfolio fixtures. Student/payment authorization is
+described in the [access policy](authorization.md). Profile separation does not
+repair the existing public webhook, durable webhook idempotency or legacy payment
+calculations documented in the [README](../README.md#security-and-limitations).

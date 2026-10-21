@@ -9,12 +9,16 @@ import com.onepipe.dtos.request.CreateBranchRequest;
 import com.onepipe.dtos.response.CreateBranchResponse;
 import com.onepipe.integration.OnepipeClient;
 import lombok.RequiredArgsConstructor;
+import com.onepipe.security.ResourceAuthorization;
+import com.onepipe.exceptions.customExceptions.ResourceConflictException;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 @Service
@@ -26,12 +30,15 @@ public class BranchService {
     private final PasswordEncoder passwordEncoder;
 
     private final OnepipeClient onePipeClient;
+    private final ResourceAuthorization authorization;
 
     @Transactional
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public CreateBranchResponse createBranch(CreateBranchRequest request) {
+        authorization.requireSuperAdmin();
 
         if (userRepository.existsByEmailIgnoreCase(request.getAdminEmail())) {
-            throw new RuntimeException("Email already taken");
+            throw new ResourceConflictException("Request conflicts with existing data");
         }
 
         User newAdmin = User.builder()
@@ -74,11 +81,18 @@ public class BranchService {
 
     }
 
+    @Transactional(readOnly = true)
     public List<CreateBranchResponse> getAllBranches() {
+        Predicate<Branch> privateDetails = authorization.branchDetailsScope();
         return branchRepository.findAll()
                 .stream()
-                .map(this::mapToResponse)
+                .map(branch -> privateDetails.test(branch) ? mapToResponse(branch) : mapPublicResponse(branch))
                 .collect(Collectors.toList());
+    }
+
+    private CreateBranchResponse mapPublicResponse(Branch branch) {
+        return CreateBranchResponse.builder().id(branch.getId()).businessName(branch.getBusinessName())
+                .branchCode(branch.getBusinessShortName()).address(branch.getBusinessAddress()).build();
     }
 
     private CreateBranchResponse mapToResponse(Branch branch) {
@@ -88,7 +102,7 @@ public class BranchService {
                 .billerCode(branch.getBillerCode())
                 .branchCode(branch.getBusinessShortName())
                 .address(branch.getBusinessAddress())
-                .adminEmail(branch.getAdminUser().getEmail())
+                .adminEmail(branch.getAdminUser() == null ? null : branch.getAdminUser().getEmail())
                 .phoneNumber(branch.getWhatsappNumber())
                 .contactPersonName(branch.getContactFirstName() + " " + branch.getContactSurname())
                 .build();

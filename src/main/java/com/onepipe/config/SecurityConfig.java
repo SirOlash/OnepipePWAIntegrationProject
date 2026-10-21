@@ -1,6 +1,7 @@
 package com.onepipe.config;
 
 import lombok.RequiredArgsConstructor;
+import com.onepipe.security.SecurityErrorHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -28,6 +29,7 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthFilter;
     private final AuthenticationProvider authenticationProvider;
+    private final SecurityErrorHandler securityErrorHandler;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -35,21 +37,20 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(Customizer.withDefaults())
                 .authorizeHttpRequests(auth -> auth
-                        // REMOVED H2 Console line - not needed for PostgreSQL production
-
-                        // Wrap EVERY API path in new AntPathRequestMatcher(...)
-                        .requestMatchers(new AntPathRequestMatcher("/api/auth/**")).permitAll()
-                        .requestMatchers(new AntPathRequestMatcher("/api/students/register")).permitAll()
+                        .requestMatchers(new AntPathRequestMatcher("/api/auth/login", "POST")).permitAll()
+                        .requestMatchers(new AntPathRequestMatcher("/api/students/register", "POST")).permitAll()
                         .requestMatchers(new AntPathRequestMatcher("/api/webhooks/**")).permitAll()
-                        .requestMatchers(new AntPathRequestMatcher("/api/payments/test/**")).permitAll()
 
                         // Allow GET branches publicly
                         .requestMatchers(new AntPathRequestMatcher("/api/branches", "GET")).permitAll()
+                        .requestMatchers(new AntPathRequestMatcher("/api/test/**")).hasRole("SUPER_ADMIN")
 
                         .anyRequest().authenticated()
                 )
                 .headers(headers -> headers.frameOptions(frame -> frame.disable()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(errors -> errors.authenticationEntryPoint(securityErrorHandler)
+                        .accessDeniedHandler(securityErrorHandler))
                 .authenticationProvider(authenticationProvider)
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 

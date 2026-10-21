@@ -14,6 +14,11 @@ import com.onepipe.dtos.response.BranchStudentDto;
 import com.onepipe.dtos.response.ParentStudentDto;
 import com.onepipe.dtos.response.RegisterStudentResponse;
 import lombok.RequiredArgsConstructor;
+import com.onepipe.security.ResourceAuthorization;
+import com.onepipe.exceptions.customExceptions.ResourceConflictException;
+import com.onepipe.exceptions.customExceptions.ResourceNotFoundException;
+import org.springframework.dao.IncorrectResultSizeDataAccessException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +28,9 @@ import java.math.RoundingMode;
 import java.time.Year;
 import java.util.List;
 import java.util.Random;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -36,22 +44,21 @@ public class StudentService {
     private final PasswordEncoder passwordEncoder;
 
     private final PaymentService paymentService;
+    private final ResourceAuthorization authorization;
 
     @Transactional
     public RegisterStudentResponse registerStudent(RegisterStudentRequest request) {
 
+        Parent parent = resolveRegistrationParent(request);
         Branch branch = branchRepository.findById(request.getBranchId())
-                .orElseThrow(() -> new RuntimeException("Branch not found"));
+                .orElseThrow(ResourceNotFoundException::new);
 
         if (request.getPaymentType() != PaymentType.SINGLE_PAYMENT) {
-            if (request.getBankAccountNumber() == null || request.getBankCode() == null) {
+            if ((parent == null && (request.getBankAccountNumber() == null || request.getBankCode() == null))
+                    || (parent != null && (parent.getBankAccountNumber() == null || parent.getBankCode() == null))) {
                 throw new RuntimeException("Bank details are required for Installment/Subscription");
             }
         }
-
-        Parent parent = parentRepository.findByPhoneNumber(request.getParentPhoneNumber())
-                .or(() -> parentRepository.findByUser_Email(request.getParentEmail()))
-                .orElse(null);
 
         if (parent == null) {
             parent = createSafeParent(request);
@@ -98,27 +105,62 @@ public class StudentService {
     }
 
     private Parent createSafeParent(RegisterStudentRequest request) {
-        User user = userRepository.findByEmailIgnoreCase(request.getParentEmail()).orElse(null);
-        if (user == null) {
-            user = User.builder()
-                    .email(request.getParentEmail().toLowerCase())
+        // The identity preflight rejected all existing users and phone numbers.
+        User user = User.builder()
+                    .email(request.getParentEmail().trim().toLowerCase(Locale.ROOT))
                     .password(passwordEncoder.encode(request.getParentPassword()))
                     .role(Role.PARENT)
                     .build();
             user = userRepository.save(user);
-        }
             Parent parent = Parent.builder()
                     .user(user)
                     .title(request.getParentTitle())
                     .firstName(request.getParentFirstName())
                     .surname(request.getParentSurname())
-                    .phoneNumber(request.getParentPhoneNumber())
+                    .phoneNumber(request.getParentPhoneNumber().trim())
                     .bankAccountNumber(request.getBankAccountNumber())
                     .bankCode(request.getBankCode())
                     .build();
 
             return parentRepository.save(parent);
         }
+
+    private Parent resolveRegistrationParent(RegisterStudentRequest request) {
+        if (request.getParentEmail() == null || request.getParentEmail().isBlank()
+                || request.getParentPhoneNumber() == null || request.getParentPhoneNumber().isBlank()) {
+            throw new IllegalArgumentException("Parent email and phone are required");
+        }
+        Optional<User> caller = authorization.currentUserIfAuthenticated();
+        if (caller.isPresent() && caller.get().getRole() == Role.BRANCH_ADMIN) {
+            authorization.branch(request.getBranchId());
+        }
+        if (caller.isPresent() && caller.get().getRole() == Role.PARENT) {
+            Parent own = authorization.ownParent();
+            if (!caller.get().getEmail().equalsIgnoreCase(request.getParentEmail().trim())
+                    || !Objects.equals(own.getPhoneNumber(), request.getParentPhoneNumber().trim())) {
+                throw new AccessDeniedException("Access denied");
+            }
+            if ((request.getBankAccountNumber() != null
+                    && !Objects.equals(request.getBankAccountNumber(), own.getBankAccountNumber()))
+                    || (request.getBankCode() != null && !Objects.equals(request.getBankCode(), own.getBankCode()))) {
+                throw new ResourceConflictException("Registration does not replace existing parent banking details");
+            }
+            return own;
+        }
+        try {
+            if (userRepository.findByEmailIgnoreCase(request.getParentEmail().trim()).isPresent()
+                    || parentRepository.findByPhoneNumber(request.getParentPhoneNumber().trim()).isPresent()) {
+                throw new ResourceConflictException(
+                        "Registration identity conflicts with an existing account; existing parents must sign in");
+            }
+        } catch (IncorrectResultSizeDataAccessException exception) {
+            throw new ResourceConflictException("Registration identity conflicts with existing data");
+        }
+        if (request.getParentPassword() == null || request.getParentPassword().isBlank()) {
+            throw new IllegalArgumentException("A private password is required for a new parent");
+        }
+        return null;
+    }
 
     private String generateStudentId(String branchCode) {
         // Logic: BRANCH_CODE / YEAR / RANDOM_4_DIGITS
@@ -127,9 +169,9 @@ public class StudentService {
         return branchCode + "/" + Year.now().getValue() + "/" + randomNum;
     }
 
+    @Transactional(readOnly = true)
     public List<BranchStudentDto> getStudentsByBranch(Long branchId) {
-        Branch branch = branchRepository.findById(branchId)
-                .orElseThrow(() -> new RuntimeException("Branch not found"));
+        Branch branch = authorization.branch(branchId);
 
         return studentRepository.findByBranch(branch).stream()
                 .map(student -> {
@@ -159,11 +201,9 @@ public class StudentService {
                 .orElse("NO PAYMENT");
     }
 
+    @Transactional(readOnly = true)
     public List<ParentStudentDto> getStudentsByParentEmail(String parentEmail) {
-        Parent parent = parentRepository.findByUser_Email(parentEmail)
-                .orElseThrow(() -> new RuntimeException("Parent not found with email: " + parentEmail));
-
-        return studentRepository.findByParent(parent).stream()
+        return authorization.studentsForParentEmail(parentEmail).stream()
                 .map(student -> {
                     // 1. Get School Fees Payment
                     Payment feePayment = paymentService.getSchoolFeesPayment(student);

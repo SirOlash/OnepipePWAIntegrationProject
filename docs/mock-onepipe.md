@@ -67,6 +67,12 @@ reconciliation, and payment calculations are not repaired by this adapter change
 ## Real adapter boundary
 
 Only explicit `real` mode under `dev` creates `RealOnePipeClient` and the legacy `/api/test` diagnostics.
+The diagnostics require `SUPER_ADMIN`; mock mode exposes neither diagnostic route.
+HTTP-facing student/payment operations also enforce the
+[parent ownership and branch authorization policy](authorization.md) before
+provider calls or writes. Public new-parent registration is the documented
+exception for creating its own initial invoice; existing-parent registration
+requires authenticated ownership.
 It requires the environment-backed provider settings in
 `application-example.properties`. Merely starting that adapter does not validate
 the historical provider contract. Do not exercise real financial operations as

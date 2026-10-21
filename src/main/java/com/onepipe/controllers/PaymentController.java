@@ -39,14 +39,12 @@ public class PaymentController {
     }
 
     @PostMapping("/{id}/cancel")
-    // Simple authorization: Any logged in user can try, but logic might restrict ownership later
-    // For MVP, we assume if they have the ID, they can cancel it.
     public ResponseEntity<String> cancelSubscription(@PathVariable String id) {
         paymentService.cancelSubscription(id);
         return ResponseEntity.ok("Subscription cancelled successfully");
     }
 
-    @GetMapping
+    @GetMapping(params = {"branchId", "!studentId"})
     public ResponseEntity<List<BranchPaymentDto>> getPaymentsByBranch(
             @RequestParam Long branchId
     ) {

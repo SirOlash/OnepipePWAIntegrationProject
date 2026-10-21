@@ -15,6 +15,7 @@ import com.onepipe.data.repositories.PaymentRepository;
 import com.onepipe.data.repositories.StudentRepository;
 import com.onepipe.dtos.response.RegisterStudentResponse;
 import com.onepipe.integration.MockOnepipeClient;
+import com.onepipe.security.ResourceAuthorization;
 import com.onepipe.integration.dto.OnePipeResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,12 +43,15 @@ class PaymentServiceTransactionReferenceTest {
     private final PaymentRepository payments = mock(PaymentRepository.class);
     private final StudentRepository students = mock(StudentRepository.class);
     private final MockOnepipeClient provider = new MockOnepipeClient();
+    private final ResourceAuthorization authorization = mock(ResourceAuthorization.class);
     private final PaymentService service = new PaymentService(payments, provider, students,
-            mock(ParentRepository.class), mock(BranchRepository.class));
+            mock(ParentRepository.class), mock(BranchRepository.class), authorization);
     private final Map<Long, Payment> savedByStudent = new HashMap<>();
 
     @BeforeEach
     void savePaymentsWithoutADatabase() {
+        when(authorization.student(org.mockito.ArgumentMatchers.anyLong())).thenAnswer(invocation ->
+                students.findById(invocation.getArgument(0)).orElseThrow());
         when(payments.save(any(Payment.class))).thenAnswer(invocation -> {
             Payment payment = invocation.getArgument(0);
             savedByStudent.put(payment.getStudent().getId(), payment);

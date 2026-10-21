@@ -23,8 +23,7 @@ public class StudentController {
         return ResponseEntity.ok(studentService.registerStudent(request));
     }
 
-    @GetMapping
-    // Allow Super Admin OR Branch Admin (Frontend handles showing the right ID)
+    @GetMapping(params = {"branchId", "!parentEmail"})
     public ResponseEntity<List<BranchStudentDto>> getStudentsByBranch(
             @RequestParam Long branchId
     ) {

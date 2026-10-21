@@ -51,8 +51,9 @@ Spring Boot REST API
 ```
 
 Mock mode makes no OnePipe calls. Only explicit real mode under `dev` creates the real
-adapter and legacy diagnostic controller. JWT authentication and some role
-checks exist; full authorization and tenant isolation are not established.
+adapter and legacy diagnostic controller. Student and payment services enforce
+database-backed parent ownership and branch scope. The public webhook remains
+outside those caller checks pending its separate security task.
 
 ## Tech stack
 
@@ -74,10 +75,16 @@ checks exist; full authorization and tenant isolation are not established.
   requires private credentials. Initialization is transactional, preserves
   existing passwords and roles, and rejects conflicting identities or ownership.
   Hosted startup never runs the seeder, even if its opt-in flag is enabled.
-- Branch creation and super-admin statistics enforce `SUPER_ADMIN` method checks.
-  Other student/payment routes generally require authentication but do not
-  consistently bind requested branch, parent, student or payment identifiers to
-  the authenticated user. Role enforcement and ownership checks remain incomplete.
+- Branch creation, platform statistics and historical diagnostics require
+  `SUPER_ADMIN`. Branch administrators are restricted to their own branch;
+  parents are restricted to their own Parent entity and children. Service-layer
+  checks run before provider calls, writes or reconciliation. Administrators
+  cannot change student payment plans or replace parents' banking details.
+  Plan changes require the authenticated parent who owns the student.
+- Public signup creates a new parent only after identity-conflict checks. Reusing
+  an existing parent requires that parent's authenticated JWT; matching an email
+  or phone alone cannot attach a child. Existing credentials and banking details
+  are preserved. Public branch discovery hides private biller/contact fields.
 - The webhook route is public. Signature verification is pending an authoritative
   provider contract; no OnePipe webhook signature specification is assumed here.
 - Durable webhook idempotency and safe payment-state transitions remain pending.
@@ -85,13 +92,17 @@ checks exist; full authorization and tenant isolation are not established.
 - Mock mode has no authenticated successful-payment simulation endpoint and does
   not guarantee end-to-end reconciliation.
 
-This internship prototype is not a production payment system. These features do
-not establish secure tenant isolation or complete payment validation.
+This internship prototype is not a production payment system. The authorization
+checks do not establish end-to-end payment integrity while the public webhook
+and reconciliation limitations remain. Public contact verification, rate limiting,
+token revocation and restrictive CORS remain separate work. See the
+[authorization policy and frontend implications](docs/authorization.md).
 
 ## API endpoints
 
-Access below describes the current code, not the intended role model.
-`Authentication required` does not imply an ownership or tenant check.
+Resource-scoped access below means the owning parent, the administrator of the
+resource's branch, or a super administrator. Scope comes from the authenticated
+database relationships, not request IDs, emails or frontend roles.
 
 ### Authentication and branches
 
@@ -99,30 +110,31 @@ Access below describes the current code, not the intended role model.
 |:-------|:---------|:---------------|:------------|
 | `POST` | `/api/auth/login` | Public | Obtain a JWT for an existing account |
 | `POST` | `/api/branches` | Authenticated `SUPER_ADMIN` | Create a branch through the selected adapter |
-| `GET` | `/api/branches` | Public | List branches |
+| `GET` | `/api/branches` | Public discovery; private fields scoped | List campus identifiers, names and addresses |
 
 ### Students
 
 | Method | Endpoint | Current access | Description |
 |:-------|:---------|:---------------|:------------|
-| `POST` | `/api/students/register` | Public | Register a student and initiate an invoice |
-| `GET` | `/api/students?branchId={id}` | Authentication required | List students for the supplied branch |
-| `GET` | `/api/students?parentEmail={email}` | Authentication required | List students for the supplied parent |
+| `POST` | `/api/students/register` | New parent signup; existing parent must authenticate as owner | Register a student and initiate an invoice |
+| `GET` | `/api/students?branchId={id}` | Own-branch admin or super admin | List students in an authorized branch |
+| `GET` | `/api/students?parentEmail={email}` | Own parent, branch-scoped admin, or super admin | List authorized children only |
 
 ### Payments
 
 | Method | Endpoint | Current access | Description |
 |:-------|:---------|:---------------|:------------|
-| `POST` | `/api/payments/new` | Authentication required | Initiate an ad-hoc invoice |
-| `GET` | `/api/payments?branchId={id}` | Authentication required | List payments for the supplied branch |
-| `GET` | `/api/payments?studentId={id}` | Authentication required | List payments for the supplied student |
-| `POST` | `/api/payments/{id}/cancel` | Authentication required | Request subscription cancellation |
-| `POST` | `/api/payments/{id}/query` | Authentication required | Query the selected adapter and run legacy status reconciliation |
-| `PUT` | `/api/payments/students/{studentId}/switch-plan` | Authentication required | Update the supplied student payment plan |
+| `POST` | `/api/payments/new` | Resource-scoped access | Initiate an ad-hoc invoice |
+| `GET` | `/api/payments?branchId={id}` | Own-branch admin or super admin | List an authorized branch's payments |
+| `GET` | `/api/payments?studentId={id}` | Resource-scoped access | List an authorized student's payments |
+| `POST` | `/api/payments/{id}/cancel` | Resource-scoped access | Request subscription cancellation |
+| `POST` | `/api/payments/{id}/query` | Resource-scoped access | Query the adapter and run legacy reconciliation |
+| `PUT` | `/api/payments/students/{studentId}/switch-plan` | Owning parent only; administrators receive 403 | Update an owned child's plan |
 
 For cancellation and query, `{id}` is the adapter payment identifier stored as
-`onePipePaymentId`, not the numeric database row ID. Student/payment routes still
-have the ownership gaps described above.
+`onePipePaymentId`, not the numeric database row ID. Cross-tenant requests fail
+before provider calls or writes. Missing/invalid authentication returns 401;
+insufficient access returns 403, missing resources 404, and identity conflicts 409.
 
 ### Webhooks, statistics and diagnostics
 
@@ -130,8 +142,14 @@ have the ownership gaps described above.
 |:-------|:---------|:---------------|:------------|
 | `POST` | `/api/webhooks/onepipe` | Public; signature verification pending | Legacy payment notification handler |
 | `GET` | `/api/super-admin/stats` | Authenticated `SUPER_ADMIN` | Platform statistics |
-| `GET` | `/api/test/encrypt` | Authentication required; real mode only | Legacy encryption diagnostic |
-| `GET` | `/api/test/onepipe-connection` | Authentication required; real mode only | Legacy diagnostic that calls the real adapter |
+| `GET` | `/api/test/encrypt` | `SUPER_ADMIN`; real mode only | Legacy encryption diagnostic |
+| `GET` | `/api/test/onepipe-connection` | `SUPER_ADMIN`; real mode only | Legacy diagnostic that calls the real adapter |
+
+Existing parents must sign in before using the registration wizard again. The
+frontend already attaches bearer tokens, but should guide identity-conflict
+responses to sign-in and use the authenticated parent's existing identity. The
+registration flow does not reset passwords or replace banking details. See the
+[frontend compatibility notes](docs/authorization.md#frontend-compatibility).
 
 ## Getting started
 
@@ -240,6 +258,11 @@ transient JWT keys rather than committing test credentials. The suite needs no P
 OnePipe environment. Provider tests use synthetic settings and mock HTTP
 boundaries. Passing tests do not establish the historical OnePipe contract or
 repair the limitations above.
+
+Authorization tests use real signed JWTs and active Spring Security filters with
+two parents and two branches. They check both permitted operations and rejected
+cross-tenant attempts, including unchanged database and mock-provider state.
+See [verified authorization coverage](docs/authorization.md#verification).
 
 ## Environment variables
 

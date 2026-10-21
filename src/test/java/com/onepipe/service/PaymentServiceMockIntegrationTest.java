@@ -22,6 +22,7 @@ import com.onepipe.integration.RealOnePipeClient;
 import com.onepipe.integration.dto.OnePipeQueryResponse;
 import com.onepipe.integration.dto.OnePipeResponse;
 import com.onepipe.utils.EncryptionUtil;
+import com.onepipe.security.ResourceAuthorization;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
@@ -71,7 +72,8 @@ class PaymentServiceMockIntegrationTest {
             .withBean(PaymentRepository.class, () -> mock(PaymentRepository.class))
             .withBean(StudentRepository.class, () -> mock(StudentRepository.class))
             .withBean(ParentRepository.class, () -> mock(ParentRepository.class))
-            .withBean(BranchRepository.class, () -> mock(BranchRepository.class));
+            .withBean(BranchRepository.class, () -> mock(BranchRepository.class))
+            .withBean(ResourceAuthorization.class, () -> mock(ResourceAuthorization.class));
 
     @ParameterizedTest
     @EnumSource(PaymentType.class)
@@ -91,6 +93,8 @@ class PaymentServiceMockIntegrationTest {
                 StudentRepository students = context.getBean(StudentRepository.class);
                 PaymentRepository payments = context.getBean(PaymentRepository.class);
                 when(students.findById(student.getId())).thenReturn(Optional.of(student));
+                ResourceAuthorization authorization = context.getBean(ResourceAuthorization.class);
+                when(authorization.student(student.getId())).thenReturn(student);
                 when(payments.save(any(Payment.class))).thenAnswer(invocation -> {
                     Payment payment = invocation.getArgument(0);
                     payment.setId(1L);
@@ -131,6 +135,7 @@ class PaymentServiceMockIntegrationTest {
 
                 when(payments.findByOnePipePaymentId(payment.getOnePipePaymentId()))
                         .thenReturn(Optional.of(payment));
+                when(authorization.payment(payment.getOnePipePaymentId())).thenReturn(payment);
                 OnePipeQueryResponse query = service.queryAndFixPaymentStatus(payment.getOnePipePaymentId());
                 assertThat(query.getStatus()).isEqualTo("PENDING");
                 assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
