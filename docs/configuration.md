@@ -20,8 +20,22 @@ contains no datasource settings. Database choices belong to the profile files.
 detection is automatic; do not add the old PostgreSQL/H2 dialect workaround.
 H2 consoles and SQL initialization scripts are disabled in all three profiles.
 The default framework logging avoids SQL, bind-value and request-detail debug
-output. Existing custom webhook and historical adapter logging still needs its
-separate security review.
+output. Task 7 removed raw webhook payload/signature logging and disabled real
+webhook mutation; historical provider operation remains unverified.
+
+Task 7 adds the `payment_collections` table and `payments.accounting_version` and
+`payments.row_version` columns. Disposable dev/test schemas create these through
+JPA. Hosted remains `ddl-auto=validate`: a later reviewed database migration must
+create the ledger, constraints and columns before a hosted deployment. Do not
+switch hosted to automatic schema updates. See [the schema requirements](payment-events.md#database-and-migration-requirements).
+
+Payment simulation defaults off. Only in dev with mock mode, set
+`DEMO_PAYMENT_SIMULATION_ENABLED=true` (property
+`app.demo.payments.simulation.enabled`) to register the super-admin-only endpoint.
+Existing private JWT and account credentials are still required; no shared key or
+public super-admin password is supplied. Other profiles and real mode never
+register it, and the processor rechecks the environment and database role on
+every invocation. See [simulation usage](payment-events.md#development-only-simulation).
 
 ## Local development
 

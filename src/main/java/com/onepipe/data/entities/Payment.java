@@ -18,6 +18,13 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 public class Payment extends BaseEntity {
+    /** Null on historical rows: no claim that legacy counters are collection evidence. */
+    private Integer accountingVersion;
+
+    @Version
+    @Column(nullable = false)
+    private Long rowVersion;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "student_id")
     private Student student;

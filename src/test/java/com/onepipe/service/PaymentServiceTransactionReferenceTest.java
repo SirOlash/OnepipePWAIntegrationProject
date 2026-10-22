@@ -12,6 +12,7 @@ import com.onepipe.data.enums.PaymentType;
 import com.onepipe.data.repositories.BranchRepository;
 import com.onepipe.data.repositories.ParentRepository;
 import com.onepipe.data.repositories.PaymentRepository;
+import com.onepipe.data.repositories.PaymentCollectionRepository;
 import com.onepipe.data.repositories.StudentRepository;
 import com.onepipe.dtos.response.RegisterStudentResponse;
 import com.onepipe.integration.MockOnepipeClient;
@@ -52,7 +53,8 @@ class PaymentServiceTransactionReferenceTest {
     private final SchoolFeeSchedule schoolFees = new SchoolFeeSchedule(new MockEnvironment(), calculator);
     private final PaymentService service = new PaymentService(payments, provider, students,
             mock(ParentRepository.class), mock(BranchRepository.class), authorization, calculator, schoolFees,
-            new PaymentInputValidation(Validation.buildDefaultValidatorFactory().getValidator()));
+            new PaymentInputValidation(Validation.buildDefaultValidatorFactory().getValidator()),
+            new PaymentAccounting(mock(PaymentCollectionRepository.class), calculator));
     private final Map<Long, Payment> savedByStudent = new HashMap<>();
 
     @BeforeEach

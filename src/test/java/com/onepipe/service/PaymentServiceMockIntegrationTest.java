@@ -17,6 +17,7 @@ import com.onepipe.data.enums.PaymentType;
 import com.onepipe.data.repositories.BranchRepository;
 import com.onepipe.data.repositories.ParentRepository;
 import com.onepipe.data.repositories.PaymentRepository;
+import com.onepipe.data.repositories.PaymentCollectionRepository;
 import com.onepipe.data.repositories.StudentRepository;
 import com.onepipe.dtos.response.RegisterStudentResponse;
 import com.onepipe.integration.MockOnepipeClient;
@@ -71,9 +72,11 @@ class PaymentServiceMockIntegrationTest {
                 }
             })
             .withUserConfiguration(OnepipeConfiguration.class, MockOnepipeClient.class,
-                    RealOnePipeClient.class, TestController.class, PaymentService.class, PaymentCalculator.class, SchoolFeeSchedule.class)
+                    RealOnePipeClient.class, TestController.class, PaymentService.class, PaymentCalculator.class, SchoolFeeSchedule.class,
+                    PaymentAccounting.class)
             .withBean(PaymentInputValidation.class, () -> new PaymentInputValidation(Validation.buildDefaultValidatorFactory().getValidator()))
             .withBean(PaymentRepository.class, () -> mock(PaymentRepository.class))
+            .withBean(PaymentCollectionRepository.class, () -> mock(PaymentCollectionRepository.class))
             .withBean(StudentRepository.class, () -> mock(StudentRepository.class))
             .withBean(ParentRepository.class, () -> mock(ParentRepository.class))
             .withBean(BranchRepository.class, () -> mock(BranchRepository.class))

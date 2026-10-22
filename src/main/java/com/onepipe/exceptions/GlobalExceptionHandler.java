@@ -15,14 +15,18 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-
-import java.util.HashMap;
-import java.util.Map;
+import org.springframework.web.servlet.HandlerMapping;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(ConcurrencyFailureException.class)
+    public ResponseEntity<ErrorResponse> handleConcurrentChange(ConcurrencyFailureException ex, HttpServletRequest request) {
+        return error(409, "RESOURCE_CONFLICT", "Payment state changed concurrently; retry the request", request);
+    }
 
     @ExceptionHandler({ConstraintViolationException.class, MethodArgumentNotValidException.class,
             HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class,
@@ -93,11 +97,12 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(RuntimeException.class)
-    public ResponseEntity<Map<String, String>> handleRuntimeException(RuntimeException ex) {
-        Map<String, String> error = new HashMap<>();
-        error.put("status", "Failed");
-        error.put("message", ex.getMessage());
-        return ResponseEntity.badRequest().body(error);
+    public ResponseEntity<ErrorResponse> handleRuntimeException(RuntimeException ex, HttpServletRequest request) {
+        // Use the mapped route, not a concrete URI that might contain a payment identifier.
+        Object route = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
+        String safePath = route == null ? "/" : route.toString();
+        return ResponseEntity.internalServerError().body(new ErrorResponse(
+                "INTERNAL_SERVER_ERROR", "An unexpected error occurred", 500, safePath));
     }
 
 

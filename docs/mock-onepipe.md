@@ -64,12 +64,15 @@ the test command. No hosted deployment or database connection has been verified.
   requirement; see [payment lifecycle limitations and regression tests](payments.md#task-8-payment-lifecycle-and-reconciliation).
 - Returned response objects are copies; modifying one cannot change stored state.
 
-The mock provider never returns `Successful` and exposes no settlement simulation
-endpoint. Authenticated payment simulation is a later task. The existing public
-webhook can still change local database payment state independently of the mock;
-its verification and state-handling repairs remain pending. Authorization,
-reconciliation and payment-event accounting remain separate work. Financial
-calculations and validation are described in [payment rules](payments.md).
+The mock invoice adapter never returns `Successful`; it remains an in-memory
+invoice/mandate simulator. Task 7 adds a separate, explicitly enabled dev-only
+super-admin [collection simulation endpoint and persistent ledger](payment-events.md).
+It confirms simulated collections without calling the adapter or modifying its
+maps. Ledger state and balances are authoritative for these simulated collections;
+mock invoice queries can still say `Pending` after a simulated ledger settlement.
+The public webhook now returns 503 without parsing/logging a payload or mutating
+financial state. Real verification and lifecycle reconciliation remain unavailable.
+Financial calculations are described in [payment rules](payments.md).
 
 ## Real adapter boundary
 

@@ -51,6 +51,7 @@ public class PaymentService {
     private final PaymentCalculator calculator;
     private final SchoolFeeSchedule schoolFees;
     private final PaymentInputValidation inputValidation;
+    private final PaymentAccounting accounting;
 
     // --- 1. Called when a Student Registers ---
     @Transactional
@@ -69,6 +70,7 @@ public class PaymentService {
                 .status(PaymentStatus.PENDING)
                 .totalAmount(totalFee)
                 .completedPayments(0)
+                .accountingVersion(1)
                 .description("School Fees for " + student.getClassGrade().name());
 
         String requestRef = UUID.randomUUID().toString();
@@ -143,6 +145,7 @@ public class PaymentService {
                 .status(PaymentStatus.PENDING)
                 .totalAmount(amount)
                 .completedPayments(0)
+                .accountingVersion(1)
                 .description(description);
 
         // Generate unique references
@@ -310,12 +313,11 @@ public class PaymentService {
         boolean recurring = payment.getPaymentType() != PaymentType.SINGLE_PAYMENT;
         LocalDateTime start = recurring && payment.getInstallmentFrequency() != null
                 && payment.getCreatedAt() != null ? firstBillingDate(payment) : null;
-        BigDecimal remaining = calculatePendingAmount(payment);
-        String basis = payment.getPaymentType() == PaymentType.SUBSCRIPTION ? "UNBOUNDED_SUBSCRIPTION"
-                : remaining == null ? "UNKNOWN"
-                : payment.getStatus() == PaymentStatus.SUCCESSFUL ? "REPORTED_SETTLED" : "UNPAID";
+        PaymentAccounting.Progress progress = accounting.snapshot(payment);
+        BigDecimal remaining = progress.remainingAmount();
+        String basis = progress.balanceBasis();
         return new PaymentTerms("NGN", payment.getAmountPerCycle(), schedule,
-                payment.getInstallmentFrequency(), start, null, remaining, basis);
+                payment.getInstallmentFrequency(), start, null, remaining, basis, progress.confirmedAmount());
     }
 
     @Transactional
@@ -383,16 +385,7 @@ public class PaymentService {
     }
 
     public BigDecimal calculatePendingAmount(Payment payment) {
-        // An unlimited subscription has no finite aggregate balance.
-        if (payment.getPaymentType() == PaymentType.SUBSCRIPTION) return null;
-        if (payment.getStatus() == PaymentStatus.SUCCESSFUL) {
-            // Existing recorded settlement, not independent evidence of verified collection.
-            return new BigDecimal("0.00");
-        }
-        if (payment.getStatus() != PaymentStatus.PENDING
-                || (payment.getCompletedPayments() != null && payment.getCompletedPayments() != 0)) return null;
-        // Planned down payments and cycle amounts are never proof that money was received.
-        return calculator.money(payment.getTotalAmount());
+        return accounting.snapshot(payment).remainingAmount();
     }
 
     @Transactional(readOnly = true)
@@ -463,49 +456,17 @@ public class PaymentService {
         }
     }
 
-    @Transactional
+    @Transactional(readOnly = true)
     public OnePipeQueryResponse queryAndFixPaymentStatus(String onePipeId) {
         Payment payment = authorization.payment(onePipeId);
-
-        String returnMessage;
-        // Optimization: If already successful, don't bother querying
-        if (payment.getStatus() == PaymentStatus.SUCCESSFUL || payment.getStatus() == PaymentStatus.ACTIVE) {
-            returnMessage = "Payment is already marked as successful/active.";
-        }
-
-        else {
-            // 3. It is PENDING/FAILED locally, so let's ask OnePipe
-            OnePipeResponse response = onePipeClient.queryTransaction(payment.getTransactionRef());
-
-            if ("successful".equalsIgnoreCase(response.getStatus())) {
-                // 4. OnePipe says it's money! Update our DB.
-
-                if (payment.getPaymentType() == PaymentType.SINGLE_PAYMENT) {
-                    payment.setStatus(PaymentStatus.SUCCESSFUL);
-                }
-                else if (payment.getPaymentType() == PaymentType.INSTALLMENT ||
-                        payment.getPaymentType() == PaymentType.SUBSCRIPTION) {
-                    // Mark the first payment (down payment) as done
-                    payment.setCompletedPayments(1);
-                    payment.setStatus(PaymentStatus.ACTIVE);
-                }
-
-                // Save the changes
-                payment = paymentRepository.save(payment);
-                returnMessage = "Payment confirmed successful and updated.";
-            } else {
-                // OnePipe says it is still pending or failed
-                returnMessage = "Payment status checked: " + response.getStatus();
-            }
-        }
-
-        // 5. Return the Clean DTO (Fixes the ByteBuddy/Serialization error)
+        // Authorized diagnostics remain available. A provider query is not a verified collection event.
+        onePipeClient.queryTransaction(payment.getTransactionRef());
         return OnePipeQueryResponse.builder()
                 .transactionRef(payment.getTransactionRef())
                 .requestRef(payment.getRequestRef())
                 .onePipePaymentId(payment.getOnePipePaymentId())
                 .status(payment.getStatus().name())
-                .message(returnMessage)
+                .message("Read-only provider query completed; local accounting was not changed.")
                 .build();
     }
 

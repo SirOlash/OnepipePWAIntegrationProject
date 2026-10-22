@@ -19,6 +19,7 @@ Missing or ambiguous account associations fail closed.
 | Supply replacement parent banking details | Denied | Denied | Own parent only | Authentication required |
 | Register using an existing parent | Denied | Denied | Own authenticated parent only | Identity conflict; sign in first |
 | Register a genuinely new parent/student | Allowed | Own branch only | Cannot create another parent identity | Allowed |
+| Simulate a collection (explicit dev/mock opt-in only) | Allowed | Denied | Denied | Authentication required |
 
 Public branch fields are `id`, `businessName`, `branchCode` and `address`.
 The existing branch-response shape is retained; biller and administrator/contact
@@ -34,8 +35,10 @@ a branch-wide listing even if one child attends that branch.
 All HTTP-facing payment operations authorize before provider calls, writes,
 banking changes or reconciliation. Internal initial-invoice creation is restricted
 to the registration service's validated flow; it is not an unauthenticated general
-payment entry point. Scheduled expiry and webhook processing remain separate
-system/provider paths and are not redesigned in this task.
+payment entry point. Real webhook submissions now fail closed with 503 without
+processing financial data. The dev-only simulation surface requires SUPER_ADMIN
+at HTTP, method and database-role checks, plus an explicit dev/mock environment
+guard. Scheduled expiry remains separate lifecycle work for Task 8.
 
 Payment-plan changes are exclusively for the authenticated parent who owns the
 student. Branch and super administrators receive 403 for every plan-change
@@ -86,10 +89,14 @@ The hardcoded branch fallback still needs a separate frontend change.
 
 Public new-parent signup does not verify ownership of a previously unregistered
 email or phone. No incomplete OTP scheme is added. Rate limiting, contact
-verification, token revocation, restrictive CORS, webhook authentication/signatures,
-durable webhook idempotency and payment-state correctness remain separate work.
-The public webhook remains a known path that can change payment state until its
-later security task; this policy does not establish end-to-end payment integrity.
+verification, token revocation, restrictive CORS and real webhook verification
+remain separate work. Task 7 provides durable idempotency and collection-derived
+states for simulated confirmations, while Task 8 lifecycle reconciliation remains
+pending.
+The public webhook cannot change payment state: Task 7 rejects it with 503 until
+authoritative verification is available. The collection ledger confirms only
+simulated events through the guarded dev mechanism; this policy does not
+establish production payment integrity.
 No production readiness, hosted deployment or PostgreSQL verification is claimed.
 
 ## Verification

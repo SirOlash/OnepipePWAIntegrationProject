@@ -44,6 +44,8 @@ public class SecurityConfig {
                         // Allow GET branches publicly
                         .requestMatchers(new AntPathRequestMatcher("/api/branches", "GET")).permitAll()
                         .requestMatchers(new AntPathRequestMatcher("/api/test/**")).hasRole("SUPER_ADMIN")
+                        .requestMatchers(new AntPathRequestMatcher("/api/dev/payment-simulations/**"))
+                        .hasRole("SUPER_ADMIN")
 
                         .anyRequest().authenticated()
                 )

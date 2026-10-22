@@ -12,7 +12,8 @@ original hosted PostgreSQL database has expired.
 Startup requires exactly one explicit profile: `dev`, `test` or `hosted`.
 The default payment adapter is an offline mock. Its account identifiers are
 synthetic: it creates no bank accounts, sends no transfers or debits, and does not
-automatically confirm payment. The historical real adapter remains an explicit
+automatically confirm payment. Explicit dev-only super-admin simulation can record
+confirmed simulated collections in the database; it never moves money. The historical real adapter remains an explicit
 opt-in under `dev`; `test` and `hosted` require mock processing. The historical
 adapter does not establish a currently working provider integration.
 
@@ -37,8 +38,10 @@ unlimited subscription before its first recurring payment is due. Account expiry
 must not imply termination of the entire recurring plan; this remains a
 **high-priority Task 8: Payment Lifecycle and Reconciliation requirement**, not
 an implemented fix. See the [verified limitation and proposed regression tests](docs/payments.md#task-8-payment-lifecycle-and-reconciliation).
-Query and webhook handlers exist, but payment-state correctness, reconciliation
-and webhook security remain unfinished. See
+Authorized provider queries are read-only. Real webhooks return 503 because
+verification is unavailable; they cannot confirm money or change financial state.
+See [persistent collection accounting and dev simulation](docs/payment-events.md).
+Recurring lifecycle reconciliation remains unfinished. See
 [mock provider behavior and limitations](docs/mock-onepipe.md) for details.
 Use synthetic records for this demo.
 
@@ -59,8 +62,8 @@ Spring Boot REST API
 
 Mock mode makes no OnePipe calls. Only explicit real mode under `dev` creates the real
 adapter and legacy diagnostic controller. Student and payment services enforce
-database-backed parent ownership and branch scope. The public webhook remains
-outside those caller checks pending its separate security task.
+database-backed parent ownership and branch scope. The public webhook is a
+rejection-only route; it cannot enter the guarded simulated collection processor.
 
 ## Tech stack
 
@@ -92,16 +95,19 @@ outside those caller checks pending its separate security task.
   an existing parent requires that parent's authenticated JWT; matching an email
   or phone alone cannot attach a child. Existing credentials and banking details
   are preserved. Public branch discovery hides private biller/contact fields.
-- The webhook route is public. Signature verification is pending an authoritative
-  provider contract; no OnePipe webhook signature specification is assumed here.
-- Durable webhook idempotency and safe payment-state transitions remain pending.
-  Mock reference reuse is process-local replay consistency, not webhook protection.
-- Mock mode has no authenticated successful-payment simulation endpoint and does
-  not guarantee end-to-end reconciliation.
+- The public webhook fails closed with 503 and does not parse or log payloads or
+  signatures. Real signature verification requires an authoritative provider
+  contract and is not implemented.
+- Confirmed simulated collections have database-backed event/slot uniqueness,
+  atomic accounting and state transitions. Mock invoice-reference reuse remains
+  process-local and is separate from persistent collection idempotency.
+- Payment simulation is disabled by default and requires exactly `dev`, mock mode,
+  explicit opt-in and an authenticated database `SUPER_ADMIN`. It is unavailable
+  in test, hosted and real-provider modes. It does not provide real reconciliation.
 
 This internship prototype is not a production payment system. The authorization
-checks do not establish end-to-end payment integrity while the public webhook
-and reconciliation limitations remain. Public contact verification, rate limiting,
+checks do not establish production payment integrity. Real webhook verification
+and lifecycle reconciliation remain unavailable. Public contact verification, rate limiting,
 token revocation and restrictive CORS remain separate work. See the
 [authorization policy and frontend implications](docs/authorization.md).
 
@@ -135,7 +141,7 @@ database relationships, not request IDs, emails or frontend roles.
 | `GET` | `/api/payments?branchId={id}` | Own-branch admin or super admin | List an authorized branch's payments |
 | `GET` | `/api/payments?studentId={id}` | Resource-scoped access | List an authorized student's payments |
 | `POST` | `/api/payments/{id}/cancel` | Resource-scoped access | Request subscription cancellation |
-| `POST` | `/api/payments/{id}/query` | Resource-scoped access | Query the adapter and run legacy reconciliation |
+| `POST` | `/api/payments/{id}/query` | Resource-scoped access | Read-only adapter query; no collection confirmation |
 | `PUT` | `/api/payments/students/{studentId}/switch-plan` | Owning parent only; administrators receive 403 | Update an owned child's plan |
 
 For cancellation and query, `{id}` is the adapter payment identifier stored as
@@ -147,7 +153,8 @@ insufficient access returns 403, missing resources 404, and identity conflicts 4
 
 | Method | Endpoint | Current access | Description |
 |:-------|:---------|:---------------|:------------|
-| `POST` | `/api/webhooks/onepipe` | Public; signature verification pending | Legacy payment notification handler |
+| `POST` | `/api/webhooks/onepipe` | Public rejection only | Always 503; unverified events cannot mutate financial state |
+| `POST` | `/api/dev/payment-simulations` | Explicitly enabled dev/mock only; SUPER_ADMIN | Confirm a server-priced simulated collection slot |
 | `GET` | `/api/super-admin/stats` | Authenticated `SUPER_ADMIN` | Platform statistics |
 | `GET` | `/api/test/encrypt` | `SUPER_ADMIN`; real mode only | Legacy encryption diagnostic |
 | `GET` | `/api/test/onepipe-connection?transactionRef={ref}` | `SUPER_ADMIN`; real mode only | Read-only query diagnostic; creates no invoice |

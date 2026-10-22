@@ -1,6 +1,7 @@
 package com.onepipe.service;
 
 import com.onepipe.data.entities.Payment;
+import com.onepipe.data.entities.PaymentCollection;
 import com.onepipe.data.enums.*;
 import com.onepipe.data.repositories.*;
 import com.onepipe.config.SchoolFeeSchedule;
@@ -12,29 +13,54 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.*;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class PaymentBalanceTest {
+    private final PaymentCollectionRepository collections = mock(PaymentCollectionRepository.class);
     private final PaymentService service = new PaymentService(mock(PaymentRepository.class), mock(OnepipeClient.class),
             mock(StudentRepository.class), mock(ParentRepository.class), mock(BranchRepository.class),
-            mock(ResourceAuthorization.class), new PaymentCalculator(), mock(SchoolFeeSchedule.class), mock(PaymentInputValidation.class));
+            mock(ResourceAuthorization.class), new PaymentCalculator(), mock(SchoolFeeSchedule.class), mock(PaymentInputValidation.class),
+            new PaymentAccounting(collections, new PaymentCalculator()));
+
+    @Test
+    void historicalPendingInvoiceWithNoTrustworthyEvidenceRemainsUnknown() {
+        Payment payment = invoice(PaymentType.INSTALLMENT, PaymentStatus.PENDING, 0);
+        assertThat(service.calculatePendingAmount(payment)).isNull();
+        assertThat(service.paymentTerms(payment).balanceBasis()).isEqualTo("UNKNOWN");
+    }
+
+    @Test
+    void confirmedCollectionsDetermineThePartialBalanceRatherThanThePlannedDownPayment() {
+        Payment payment = invoice(PaymentType.INSTALLMENT, PaymentStatus.ACTIVE, 1);
+        payment.setId(91L); payment.setAccountingVersion(1);
+        when(collections.findByPaymentId(91L)).thenReturn(List.of(
+                PaymentCollection.builder().confirmedAmount(new BigDecimal("20000.00"))
+                        .collectionType(CollectionType.DOWN_PAYMENT).build(),
+                PaymentCollection.builder().confirmedAmount(new BigDecimal("26666.67"))
+                        .collectionType(CollectionType.INSTALLMENT).build()));
+        assertThat(service.calculatePendingAmount(payment)).isEqualByComparingTo("53333.33");
+        assertThat(service.paymentTerms(payment).balanceBasis()).isEqualTo("CONFIRMED_COLLECTIONS");
+    }
 
     @ParameterizedTest
     @EnumSource(value = PaymentType.class, names = {"SINGLE_PAYMENT", "INSTALLMENT"})
     void newUnpaidFiniteInvoicesKeepTheirFullBalance(PaymentType type) {
         Payment payment = invoice(type, PaymentStatus.PENDING, 0);
+        payment.setAccountingVersion(1);
         assertThat(service.calculatePendingAmount(payment)).isEqualTo(new BigDecimal("100000.00"));
         assertThat(service.paymentTerms(payment).balanceBasis()).isEqualTo("UNPAID");
     }
 
     @ParameterizedTest
     @EnumSource(value = PaymentType.class, names = {"SINGLE_PAYMENT", "INSTALLMENT"})
-    void recordedSettledFiniteInvoicesHaveZeroBalance(PaymentType type) {
+    void historicalSettledStatusWithoutCollectionEvidenceDoesNotProveZeroBalance(PaymentType type) {
         Payment payment = invoice(type, PaymentStatus.SUCCESSFUL, 4);
-        assertThat(service.calculatePendingAmount(payment)).isEqualTo(new BigDecimal("0.00"));
-        assertThat(service.paymentTerms(payment).balanceBasis()).isEqualTo("REPORTED_SETTLED");
+        assertThat(service.calculatePendingAmount(payment)).isNull();
+        assertThat(service.paymentTerms(payment).balanceBasis()).isEqualTo("UNKNOWN");
     }
 
     @ParameterizedTest
@@ -49,6 +75,24 @@ class PaymentBalanceTest {
     @ValueSource(ints = {1, -1, 3})
     void countersOnPendingInvoicesAreNotTrustedAsPaymentEvidence(int count) {
         assertThat(service.calculatePendingAmount(invoice(PaymentType.INSTALLMENT, PaymentStatus.PENDING, count))).isNull();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PaymentStatus.class, names = {"FAILED", "CANCELLED"})
+    void managedInvoiceWithZeroConfirmedCollectionsKeepsItsFullFiniteBalance(PaymentStatus status) {
+        Payment payment = invoice(PaymentType.INSTALLMENT, status, 0);
+        payment.setAccountingVersion(1);
+        assertThat(service.calculatePendingAmount(payment)).isEqualByComparingTo("100000.00");
+        assertThat(service.paymentTerms(payment).confirmedAmount()).isEqualByComparingTo("0.00");
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PaymentStatus.class, names = {"ACTIVE", "SUCCESSFUL"})
+    void inconsistentManagedStateCannotInventCollections(PaymentStatus status) {
+        Payment payment = invoice(PaymentType.INSTALLMENT, status, 0);
+        payment.setAccountingVersion(1);
+        assertThat(service.calculatePendingAmount(payment)).isNull();
+        assertThat(service.paymentTerms(payment).confirmedAmount()).isNull();
     }
 
     @ParameterizedTest

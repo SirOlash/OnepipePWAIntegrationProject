@@ -2,8 +2,10 @@
 
 Greenfield remains an internship prototype. These rules describe planned
 obligations in offline mock mode, not verified money movement. Invoice creation
-leaves status `PENDING` and `completedPayments=0`. No success endpoint, simulated
-collection, webhook signature scheme or durable event idempotency is added.
+leaves status `PENDING` and `completedPayments=0`. Task 7 adds an explicitly
+guarded dev-only simulation endpoint and persistent collection ledger, described
+in [payment events](payment-events.md). Real webhooks fail closed; no signature
+scheme or real-money processing is claimed.
 
 ## Units and limits
 
@@ -41,9 +43,9 @@ Legitimate `ADHOC_PAYMENT` amounts remain caller-supplied, positive NGN values.
 
 The full invoice amount is due. No down payment, frequency or installment count
 is stored or sent. Optional irrelevant schedule inputs are not used. Creating
-the invoice does not settle it. A finite invoice already recorded as
-`SUCCESSFUL` reports zero, explicitly labeled `REPORTED_SETTLED`; this is a
-legacy state assertion, not independent evidence of a verified collection.
+the invoice does not settle it. Only persisted confirmed collection evidence
+settles a ledger-managed invoice and produces a zero balance. Historical
+`SUCCESSFUL` without trustworthy evidence now remains `UNKNOWN`, not zero.
 
 ## Installments
 
@@ -108,31 +110,32 @@ There is no persisted cycle-obligation or confirmed-payment ledger. Therefore an
 unlimited subscription has no aggregate finite `remainingAmount`; it returns null
 with `terms.balanceBasis=UNBOUNDED_SUBSCRIPTION`. The existing `totalAmount` and
 API `amount` fields denote the per-cycle charge for this plan, not lifetime debt.
-Future per-cycle balances require the Task 7 model below.
+Confirmed cycle amounts are recorded individually in the Task 7 ledger; automatic
+due-date and cycle-obligation lifecycle management remains Task 8 work.
 
-## Balances and Task 7 accounting boundary
+## Confirmed balances and accounting
 
-New unpaid finite invoices report their full invoice amount. Merely planning a
-down payment or an installment never reduces it. Recorded settled finite invoices
-report 0.00. Other non-pending invoices, or unsettled invoices with nonzero legacy
-collection counters, return null with `balanceBasis=UNKNOWN`. Existing counters
-cannot prove which amounts were collected and may include a down payment or
-duplicate notifications; they are returned unchanged for compatibility, not
-used for balance arithmetic or certified completion percentages. Null is not zero.
+New invoices have `accountingVersion=1`; their finite balance is invoice total
+minus the sum of their persisted confirmed collections. Merely planning a down
+payment never reduces it. Fully confirmed finite invoices report 0.00; overpayment
+is rejected rather than silently capped. `terms.confirmedAmount` is additive and
+reports the ledger sum. Ledger-backed progress uses `CONFIRMED_COLLECTIONS`, fresh
+unpaid invoices use `UNPAID`, and unlimited subscriptions retain a null finite
+balance with `UNBOUNDED_SUBSCRIPTION`.
 
-Accurate partial balances cannot be implemented from this Payment entity alone.
-Task 7 should persist verified collection events with a unique provider/event
-identity, invoice relationship, exact NGN/kobo units and currency, amount,
-confirmation time, and down-payment/installment/cycle allocation. Deduplicate and
-validate events before atomically recording them and deriving paid total, remaining
-balance and recurring-installment count. Settled amounts should cap at the finite
-obligation (and identify overpayment separately). Model subscription cycle
-obligations separately. Do not backfill events from existing counters.
+Historical rows have no accounting marker and remain `UNKNOWN`, including legacy
+`SUCCESSFUL` flags. They cannot be confirmed through the new processor without a
+future evidence-based migration/reconciliation policy. No events are backfilled
+from counters. Raw historical counters remain compatibility data, not payment
+evidence. New counters are derived from the ledger; installment counters exclude
+the down payment. Marker-bearing but inconsistent empty-ledger states also remain
+unknown and cannot be adopted silently. Null balances/confirmed amounts are not zero.
 
-WebhookController, WebhookService, reconciliation and expiry state transitions
-remain unchanged. Their security, replay and state-ordering limitations persist.
-Recorded SUCCESSFUL is not proof while that work is pending. No partial collection
-is fabricated here, and no test triggers a real transfer or public success route.
+The [payment-event design](payment-events.md) describes atomic confirmation,
+identity uniqueness and explicit transitions. Real webhook submissions now fail
+closed with 503. Provider queries remain authorized but read-only, even when a
+provider claims success/failure. Expiry and cancellation policy still require Task 8;
+optimistic version checks guard stale writes without repairing the expiry policy.
 
 ## Task 8: Payment Lifecycle and Reconciliation
 
@@ -163,8 +166,9 @@ obligations. Define account/invoice expiry separately from recurring-plan
 termination and explicitly reconcile database/provider lifecycle state. Single
 invoice expiry and authorized explicit cancellation need their own agreed rules.
 Do not infer undocumented OnePipe account-renewal or mandate behavior. This
-documentation correction leaves the scheduler, payment logic and webhooks
-unchanged; it implements neither Task 7 nor Task 8.
+requirement was first recorded during Task 6 review. Task 7 closes unverified
+webhook mutation and adds a ledger and optimistic version protection, but leaves
+the expiry policy unchanged. It does not implement Task 8.
 
 Recommended regression tests for the future Task 8 correction:
 
@@ -192,11 +196,11 @@ Recommended regression tests for the future Task 8 correction:
   with the expected mock state and no fabricated payment. No real provider calls
   or hour-long sleeps are needed.
 
-Existing tests assert the mock's one-hour expiry and initial recurring terms,
-but no current test exercises `expireOverduePayments()`. The previously passing
-400-test Task 6 suite does not establish correct recurring-plan expiry behavior.
-These are recommendations only; no regression tests or lifecycle correction are
-implemented in this documentation change.
+Existing tests assert the mock's one-hour expiry and initial recurring terms;
+Task 7 additionally tests version protection against stale detached updates
+after settlement. Neither establishes correct expiry policy for pending plans,
+and no current test exercises `expireOverduePayments()` itself. The Task 8 expiry
+tests above remain recommendations; the lifecycle correction is not implemented.
 
 ## Validation and frontend compatibility
 
@@ -214,7 +218,7 @@ permissions remain in force. Subscription frequency is now retained on switching
 Existing response field names are retained. An additive `terms` object on payment
 details, parent payments and branch payments includes currency, amountPerCycle,
 exact installmentAmounts, frequency, firstBillingDate, endDate, remainingAmount
-and balanceBasis. A single payment has no recurring terms; subscription endDate
+and balanceBasis, plus additive confirmedAmount. A single payment has no recurring terms; subscription endDate
 and finite aggregate balance are null. The registration request accepts legacy
 `numberOfPayments` as an alias for `numberOfInstallments`; both mean installments
 after the down payment. Prefer the canonical field and do not send both.
