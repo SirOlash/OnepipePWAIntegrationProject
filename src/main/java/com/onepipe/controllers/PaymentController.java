@@ -11,6 +11,7 @@ import com.onepipe.dtos.response.RegisterStudentResponse;
 import com.onepipe.integration.dto.OnePipeQueryResponse;
 import com.onepipe.service.PaymentService;
 import lombok.RequiredArgsConstructor;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -26,15 +27,9 @@ public class PaymentController {
 
     @PostMapping("/new")
     public ResponseEntity<RegisterStudentResponse> triggerNewPayment(
-            @RequestBody PaymentRequest dto) {
+            @Valid @RequestBody PaymentRequest dto) {
 
-        RegisterStudentResponse response = paymentService.triggerNewPayment(
-                dto.getStudentId(),
-                dto.getCategory(),
-                dto.getAmount(),
-                dto.getPaymentType(),
-                dto.getDescription()
-        );
+        RegisterStudentResponse response = paymentService.triggerNewPayment(dto);
         return ResponseEntity.ok(response);
     }
 
@@ -66,7 +61,7 @@ public class PaymentController {
     @PutMapping("/students/{studentId}/switch-plan")
     public ResponseEntity<String> updatePaymentPlan(
             @PathVariable Long studentId,
-            @RequestBody SwitchPlanRequest request
+            @Valid @RequestBody SwitchPlanRequest request
     ) {
         paymentService.updatePaymentPlan(studentId, request);
         return ResponseEntity.ok("Payment Plan updated successfully.");

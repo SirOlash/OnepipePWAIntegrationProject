@@ -16,6 +16,10 @@ import com.onepipe.data.repositories.StudentRepository;
 import com.onepipe.dtos.response.RegisterStudentResponse;
 import com.onepipe.integration.MockOnepipeClient;
 import com.onepipe.security.ResourceAuthorization;
+import com.onepipe.config.SchoolFeeSchedule;
+import com.onepipe.validation.PaymentInputValidation;
+import jakarta.validation.Validation;
+import org.springframework.mock.env.MockEnvironment;
 import com.onepipe.integration.dto.OnePipeResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,8 +48,11 @@ class PaymentServiceTransactionReferenceTest {
     private final StudentRepository students = mock(StudentRepository.class);
     private final MockOnepipeClient provider = new MockOnepipeClient();
     private final ResourceAuthorization authorization = mock(ResourceAuthorization.class);
+    private final PaymentCalculator calculator = new PaymentCalculator();
+    private final SchoolFeeSchedule schoolFees = new SchoolFeeSchedule(new MockEnvironment(), calculator);
     private final PaymentService service = new PaymentService(payments, provider, students,
-            mock(ParentRepository.class), mock(BranchRepository.class), authorization);
+            mock(ParentRepository.class), mock(BranchRepository.class), authorization, calculator, schoolFees,
+            new PaymentInputValidation(Validation.buildDefaultValidatorFactory().getValidator()));
     private final Map<Long, Payment> savedByStudent = new HashMap<>();
 
     @BeforeEach
@@ -72,7 +79,7 @@ class PaymentServiceTransactionReferenceTest {
 
         assertThat(first.getCategory()).isEqualTo(PaymentCategory.SCHOOL_FEES);
         assertThat(second.getCategory()).isEqualTo(PaymentCategory.SCHOOL_FEES);
-        assertSeparatePendingInvoices(first, second, "SCH-", ClassGrade.JSS1.getDefaultFee());
+        assertSeparatePendingInvoices(first, second, "SCH-", new BigDecimal("100000.00"));
     }
 
     @ParameterizedTest
@@ -82,7 +89,7 @@ class PaymentServiceTransactionReferenceTest {
         Student secondStudent = demoStudent(2L);
         when(students.findById(firstStudent.getId())).thenReturn(Optional.of(firstStudent));
         when(students.findById(secondStudent.getId())).thenReturn(Optional.of(secondStudent));
-        BigDecimal requestedAmount = new BigDecimal("275.25");
+        BigDecimal requestedAmount = new BigDecimal(category == PaymentCategory.SCHOOL_FEES ? "100000.00" : "275.25");
 
         RegisterStudentResponse firstResponse = service.triggerNewPayment(firstStudent.getId(), category,
                 requestedAmount, PaymentType.SINGLE_PAYMENT, "First demo invoice");

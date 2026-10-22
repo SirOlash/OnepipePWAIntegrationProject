@@ -12,10 +12,27 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.UUID;
+import java.math.BigDecimal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class RealOnePipeClientAuthTest {
+
+    @ParameterizedTest
+    @EnumSource(PaymentType.class)
+    void alreadyConvertedKoboPassesThroughRealAdapterWithoutAnotherConversion(PaymentType type) {
+        var client = new CapturingRealClient();
+        ReflectionTestUtils.setField(client, "clientSecret", UUID.randomUUID().toString());
+        var request = new OnePipeInvoiceRequest(); var tx = new OnePipeInvoiceRequest.Transaction();
+        tx.setAmount(new BigDecimal("10000000"));
+        var meta = new OnePipeInvoiceRequest.Meta(); meta.setDownPayment(new BigDecimal("2000000"));
+        tx.setMeta(meta); request.setTransaction(tx);
+        var payment = Payment.builder().paymentType(type).parent(Parent.builder()
+                .bankAccountNumber("SYNTHETIC-ACCOUNT").bankCode("SYNTHETIC-BANK").build()).build();
+        client.sendInvoice(request, payment);
+        assertThat(client.sentRequest.getTransaction().getAmount()).isEqualTo(new BigDecimal("10000000"));
+        assertThat(client.sentRequest.getTransaction().getMeta().getDownPayment()).isEqualTo(new BigDecimal("2000000"));
+    }
 
     @Test
     void singlePaymentKeepsProviderAuthorizationWithoutBankDetails() {

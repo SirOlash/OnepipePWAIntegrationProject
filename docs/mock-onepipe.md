@@ -56,13 +56,20 @@ the test command. No hosted deployment or database connection has been verified.
   The existing nullable QR response fields remain available.
 - Mock invoices have a fixed one-hour demonstration expiry, formatted as
   `yyyy-MM-dd HH:mm:ss` for compatibility with the existing local expiry job.
+  That job currently cancels the entire expired `PENDING` database payment
+  regardless of type or recurring due date. This can prematurely cancel an
+  installment plan or unlimited subscription; it does not cancel the mock
+  mandate, whose query can still return `Pending`. Separating account expiry
+  from plan termination is a high-priority Task 8 lifecycle/reconciliation
+  requirement; see [payment lifecycle limitations and regression tests](payments.md#task-8-payment-lifecycle-and-reconciliation).
 - Returned response objects are copies; modifying one cannot change stored state.
 
 The mock provider never returns `Successful` and exposes no settlement simulation
 endpoint. Authenticated payment simulation is a later task. The existing public
 webhook can still change local database payment state independently of the mock;
 its verification and state-handling repairs remain pending. Authorization,
-reconciliation, and payment calculations are not repaired by this adapter change.
+reconciliation and payment-event accounting remain separate work. Financial
+calculations and validation are described in [payment rules](payments.md).
 
 ## Real adapter boundary
 
@@ -78,18 +85,35 @@ It requires the environment-backed provider settings in
 the historical provider contract. Do not exercise real financial operations as
 part of this portfolio demonstration.
 
-`PaymentService` still assembles the same invoice terms and maps the same response
+`PaymentService` assembles validated invoice terms using the existing request
 fields. It supplies the payment context through a backward-compatible
 `OnepipeClient.sendInvoice(request, payment)` overload. Only the real adapter uses
 that context for TripleDES bank authorization. The mock ignores it and has no
 HTTP client, provider secret, signature, or encryption dependency. The original
-one-argument method remains for the real-only diagnostic controller.
+one-argument invoice method remains on the adapter interface. The real-only
+connection diagnostic queries a supplied `transactionRef` and no longer builds
+fixed-amount sandbox invoices.
 
-The legacy `isDemoMode=true` in `PaymentService` is **not** provider selection.
-It still sets an installment down payment of 10,000 kobo and daily recurring
-metadata; subscription metadata still uses daily recurrence and a short date
-window. These settings can differ from stored plan amounts/frequency. They remain
-unchanged for a later payment-business-rule task.
+The historical sandbox amount and recurrence overrides have been removed.
+`PaymentService` converts the actual invoice and planned down payment from NGN
+to integer kobo exactly once. Both adapters receive those same provider units;
+neither adapter converts again. The mock snapshots amount, down payment, count,
+frequency and dates and returns copies on replay/query. The optional
+`amountInKobo`, `downPaymentInKobo` and recurrence fields in `OnePipeResponse`
+are local mock diagnostics, not claims about undocumented OnePipe response fields.
+The API's existing payment amounts and new planned `terms` remain in NGN.
+
+The request retains only the existing amount/down-payment/count/frequency/date
+fields. No per-cycle amount list or final-installment field has been invented
+for OnePipe. The exact variable installment schedule is calculated locally and
+returned in API `terms`; historical real-provider rounding and recurring-field
+semantics cannot be verified against the discontinued internship environment.
+Mock mode records planned terms and never executes collections. The subscription
+request has no automatic end date. The mock's one-hour virtual-account expiry
+should be separate from subscription billing and termination, but the current
+scheduler violates that separation by cancelling expired pending database plans.
+This known Task 8 defect remains unfixed; removing the old short subscription
+window did not repair recurring-plan expiry.
 
 Mock replay consistency is not webhook idempotency. No OnePipe webhook signature
 specification is assumed or implemented here.

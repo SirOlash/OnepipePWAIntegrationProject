@@ -222,7 +222,7 @@ class AuthorizationIntegrationTest {
                 .contentType("application/json").content(json.writeValueAsString(request)))).andExpect(status().isOk());
         Student changed = students.findById(childA.getId()).orElseThrow();
         assertThat(changed.getPreferredPaymentType()).isEqualTo(type);
-        assertThat(changed.getInstallmentFrequency()).isEqualTo(type == PaymentType.INSTALLMENT ? InstallmentFrequency.WEEKLY : null);
+        assertThat(changed.getInstallmentFrequency()).isEqualTo(type != PaymentType.SINGLE_PAYMENT ? InstallmentFrequency.WEEKLY : null);
         assertThat(changed.getNumberOfInstallments()).isEqualTo(type == PaymentType.INSTALLMENT ? 4 : null);
         assertThat(parents.findById(parentA.getId()).orElseThrow().getBankAccountNumber()).isEqualTo(parentA.getBankAccountNumber());
         verifyNoInteractions(provider);
@@ -408,7 +408,7 @@ class AuthorizationIntegrationTest {
         RegisterStudentRequest request = registration();
         http.perform(registrationRequest(request)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.studentRegId").isString()).andExpect(jsonPath("$.paymentDetails.onePipePaymentId").isString())
-                .andExpect(jsonPath("$.paymentDetails.amount").value(ClassGrade.JSS1.getDefaultFee().intValue()));
+                .andExpect(jsonPath("$.paymentDetails.amount").value(100000));
         User created = users.findByEmailIgnoreCase(request.getParentEmail()).orElseThrow();
         assertThat(created.getRole()).isEqualTo(Role.PARENT);
         assertThat(encoder.matches(request.getParentPassword(), created.getPassword())).isTrue();
@@ -523,12 +523,14 @@ class AuthorizationIntegrationTest {
     }
 
     private SwitchPlanRequest plan() {
-        SwitchPlanRequest request = new SwitchPlanRequest(); request.setNewPaymentType(PaymentType.SUBSCRIPTION); return request;
+        SwitchPlanRequest request = new SwitchPlanRequest(); request.setNewPaymentType(PaymentType.SUBSCRIPTION);
+        request.setFrequency(InstallmentFrequency.MONTHLY); return request;
     }
 
     private RegisterStudentRequest registration() {
         return RegisterStudentRequest.builder().branchId(branchA.getId()).firstName("NewChild").surname("Demo")
-                .classGrade(ClassGrade.JSS1).parentFirstName("New").parentSurname("Parent").parentTitle(Title.MR)
+                .classGrade(ClassGrade.JSS1).dateOfBirth(java.time.LocalDate.of(2012, 1, 1))
+                .parentFirstName("New").parentSurname("Parent").parentTitle(Title.MR)
                 .parentEmail("new-" + UUID.randomUUID() + "@example.invalid").parentPassword(UUID.randomUUID().toString())
                 .parentPhoneNumber("DEMO-" + UUID.randomUUID()).paymentType(PaymentType.SINGLE_PAYMENT).build();
     }

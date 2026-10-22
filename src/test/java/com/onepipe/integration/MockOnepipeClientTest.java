@@ -81,13 +81,40 @@ class MockOnepipeClientTest {
         assertThat(fields).containsExactlyInAnyOrder(
                 "virtualAccountNumber", "virtualAccountBankName", "virtualAccountName", "virtualAccountBankCode",
                 "virtualAccountExpiryDate", "customerAccountNumber", "customerEmail", "transactionRef",
-                "paymentId", "status", "message", "createdOn", "virtualAccountQrCodeUrl"
+                "paymentId", "status", "message", "createdOn", "virtualAccountQrCodeUrl",
+                "amountInKobo", "downPaymentInKobo", "repeatFrequency", "repeatStartDate", "repeatEndDate", "numberOfPayments"
         );
         assertThat(json.get("transactionRef").asText()).isEqualTo("serialized-invoice");
         assertThat(json.get("paymentId").asText()).isEqualTo(response.getPaymentId());
         assertThat(json.get("status").asText()).isEqualTo("Pending");
         assertThat(json.get("virtualAccountNumber").asText()).startsWith("DEMO-ACCOUNT-");
         assertThat(json.get("virtualAccountQrCodeUrl").isNull()).isTrue();
+    }
+
+    @Test
+    void monetaryTermsAreImmutableKoboSnapshotsAndReplayDoesNotConvertOrReplaceThem() {
+        var request = invoice("financial-snapshot", "instalment");
+        request.getTransaction().setAmount(new BigDecimal("10000000"));
+        var meta = request.getTransaction().getMeta();
+        meta.setDownPayment(new BigDecimal("2000000")); meta.setNumberOfPayments(3);
+        meta.setRepeatFrequency("monthly"); meta.setRepeatStartDate("2026-11-21-12-00-00");
+        var original = client.sendInvoice(request);
+        assertThat(original.getAmountInKobo()).isEqualTo(new BigDecimal("10000000"));
+        assertThat(original.getDownPaymentInKobo()).isEqualTo(new BigDecimal("2000000"));
+        assertThat(original.getNumberOfPayments()).isEqualTo(3);
+        assertThat(original.getRepeatFrequency()).isEqualTo("monthly");
+        assertThat(original.getRepeatStartDate()).isEqualTo("2026-11-21-12-00-00");
+        original.setAmountInKobo(BigDecimal.ONE); original.setDownPaymentInKobo(BigDecimal.ONE);
+        request.getTransaction().setAmount(BigDecimal.TEN); meta.setDownPayment(BigDecimal.TEN);
+        meta.setNumberOfPayments(12); meta.setRepeatFrequency("daily"); meta.setRepeatStartDate("changed");
+        var queried = client.queryTransaction("financial-snapshot");
+        assertThat(queried.getAmountInKobo()).isEqualTo(new BigDecimal("10000000"));
+        assertThat(queried.getDownPaymentInKobo()).isEqualTo(new BigDecimal("2000000"));
+        assertThat(queried.getNumberOfPayments()).isEqualTo(3);
+        assertThat(queried.getRepeatFrequency()).isEqualTo("monthly");
+        assertThat(queried.getRepeatStartDate()).isEqualTo("2026-11-21-12-00-00");
+        assertThat(client.sendInvoice(request)).isEqualTo(queried);
+        assertThat(queried.getStatus()).isEqualTo("Pending");
     }
 
     @Test

@@ -20,8 +20,9 @@ adapter does not establish a currently working provider integration.
 
 The prototype models branches, parent/student registration, invoices, payment
 plans and dashboards. It retains `SINGLE_PAYMENT`, `INSTALLMENT` and `SUBSCRIPTION`
-plan types. Legacy amount and recurrence calculations still need review; these
-labels do not imply working automatic collection.
+plan types. Amounts use two-decimal NGN, server-controlled class fees and exact
+installment schedules. See [payment rules and accounting limits](docs/payments.md).
+Creating an invoice creates a planned obligation; it does not confirm payment.
 
 Mock merchant/invoice requests return clearly marked demonstration identifiers.
 Repeated references reuse process-local state, new invoices start pending, and
@@ -29,7 +30,13 @@ unknown queries return `NotFound`. Restarting clears mock adapter state even if
 application records persist in PostgreSQL. No payment QR code is generated;
 nullable QR fields remain in the response contract.
 
-A scheduled job attempts to expire pending invoices using stored expiry dates.
+A scheduled job currently cancels any pending payment whose virtual-account
+expiry has passed, without distinguishing payment types or recurring due dates.
+The mock's one-hour account expiry can therefore cancel an installment plan or
+unlimited subscription before its first recurring payment is due. Account expiry
+must not imply termination of the entire recurring plan; this remains a
+**high-priority Task 8: Payment Lifecycle and Reconciliation requirement**, not
+an implemented fix. See the [verified limitation and proposed regression tests](docs/payments.md#task-8-payment-lifecycle-and-reconciliation).
 Query and webhook handlers exist, but payment-state correctness, reconciliation
 and webhook security remain unfinished. See
 [mock provider behavior and limitations](docs/mock-onepipe.md) for details.
@@ -143,7 +150,7 @@ insufficient access returns 403, missing resources 404, and identity conflicts 4
 | `POST` | `/api/webhooks/onepipe` | Public; signature verification pending | Legacy payment notification handler |
 | `GET` | `/api/super-admin/stats` | Authenticated `SUPER_ADMIN` | Platform statistics |
 | `GET` | `/api/test/encrypt` | `SUPER_ADMIN`; real mode only | Legacy encryption diagnostic |
-| `GET` | `/api/test/onepipe-connection` | `SUPER_ADMIN`; real mode only | Legacy diagnostic that calls the real adapter |
+| `GET` | `/api/test/onepipe-connection?transactionRef={ref}` | `SUPER_ADMIN`; real mode only | Read-only query diagnostic; creates no invoice |
 
 Existing parents must sign in before using the registration wizard again. The
 frontend already attaches bearer tokens, but should guide identity-conflict

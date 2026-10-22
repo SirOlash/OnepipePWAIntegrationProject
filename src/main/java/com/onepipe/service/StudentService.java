@@ -13,6 +13,9 @@ import com.onepipe.dtos.request.RegisterStudentRequest;
 import com.onepipe.dtos.response.BranchStudentDto;
 import com.onepipe.dtos.response.ParentStudentDto;
 import com.onepipe.dtos.response.RegisterStudentResponse;
+import com.onepipe.config.SchoolFeeSchedule;
+import com.onepipe.validation.PaymentInputValidation;
+import com.onepipe.exceptions.customExceptions.InvalidPaymentException;
 import lombok.RequiredArgsConstructor;
 import com.onepipe.security.ResourceAuthorization;
 import com.onepipe.exceptions.customExceptions.ResourceConflictException;
@@ -24,7 +27,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Year;
 import java.util.List;
 import java.util.Random;
@@ -45,18 +47,27 @@ public class StudentService {
 
     private final PaymentService paymentService;
     private final ResourceAuthorization authorization;
+    private final PaymentCalculator calculator;
+    private final SchoolFeeSchedule schoolFees;
+    private final PaymentInputValidation inputValidation;
 
     @Transactional
     public RegisterStudentResponse registerStudent(RegisterStudentRequest request) {
 
         Parent parent = resolveRegistrationParent(request);
+        inputValidation.validate(request);
+        BigDecimal officialFee = schoolFees.validateSubmittedAmount(request.getClassGrade(), request.getAmount(), calculator);
+        calculator.validatePlan(request.getPaymentType(), request.getFrequency(), request.getNumberOfInstallments());
+        if (request.getPaymentType() == PaymentType.INSTALLMENT) {
+            calculator.installments(officialFee, request.getNumberOfInstallments());
+        }
         Branch branch = branchRepository.findById(request.getBranchId())
                 .orElseThrow(ResourceNotFoundException::new);
 
         if (request.getPaymentType() != PaymentType.SINGLE_PAYMENT) {
-            if ((parent == null && (request.getBankAccountNumber() == null || request.getBankCode() == null))
-                    || (parent != null && (parent.getBankAccountNumber() == null || parent.getBankCode() == null))) {
-                throw new RuntimeException("Bank details are required for Installment/Subscription");
+            if ((parent == null && (blank(request.getBankAccountNumber()) || blank(request.getBankCode())))
+                    || (parent != null && (blank(parent.getBankAccountNumber()) || blank(parent.getBankCode())))) {
+                throw new InvalidPaymentException("Bank details are required for Installment/Subscription");
             }
         }
 
@@ -75,8 +86,8 @@ public class StudentService {
                 .branch(branch)
                 .parent(parent)
                 .preferredPaymentType(request.getPaymentType())
-                .installmentFrequency(request.getFrequency())
-                .numberOfInstallments(request.getNumberOfInstallments())
+                .installmentFrequency(request.getPaymentType() == PaymentType.SINGLE_PAYMENT ? null : request.getFrequency())
+                .numberOfInstallments(request.getPaymentType() == PaymentType.INSTALLMENT ? request.getNumberOfInstallments() : null)
                 .build();
 
         studentRepository.save(student);
@@ -100,6 +111,7 @@ public class StudentService {
                         .expiryDate(payment.getVirtualAccountExpiryDate())
                         .customerAccountNumber(payment.getCustomerAccountNumber())
                         .qrCodeImage(payment.getVirtualAccountQrCodeUrl())
+                        .terms(paymentService.paymentTerms(payment))
                         .build())
                 .build();
     }
@@ -125,10 +137,12 @@ public class StudentService {
             return parentRepository.save(parent);
         }
 
+    private static boolean blank(String value) { return value == null || value.isBlank(); }
+
     private Parent resolveRegistrationParent(RegisterStudentRequest request) {
         if (request.getParentEmail() == null || request.getParentEmail().isBlank()
                 || request.getParentPhoneNumber() == null || request.getParentPhoneNumber().isBlank()) {
-            throw new IllegalArgumentException("Parent email and phone are required");
+            throw new InvalidPaymentException("Parent email and phone are required");
         }
         Optional<User> caller = authorization.currentUserIfAuthenticated();
         if (caller.isPresent() && caller.get().getRole() == Role.BRANCH_ADMIN) {
@@ -157,7 +171,7 @@ public class StudentService {
             throw new ResourceConflictException("Registration identity conflicts with existing data");
         }
         if (request.getParentPassword() == null || request.getParentPassword().isBlank()) {
-            throw new IllegalArgumentException("A private password is required for a new parent");
+            throw new InvalidPaymentException("A private password is required for a new parent");
         }
         return null;
     }

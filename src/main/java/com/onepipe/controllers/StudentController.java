@@ -6,6 +6,7 @@ import com.onepipe.dtos.response.ParentStudentDto;
 import com.onepipe.dtos.response.RegisterStudentResponse;
 import com.onepipe.service.StudentService;
 import lombok.RequiredArgsConstructor;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -19,7 +20,7 @@ public class StudentController {
     private final StudentService studentService;
 
     @PostMapping("/register")
-    public ResponseEntity<RegisterStudentResponse> registerStudent(@RequestBody RegisterStudentRequest request) {
+    public ResponseEntity<RegisterStudentResponse> registerStudent(@Valid @RequestBody RegisterStudentRequest request) {
         return ResponseEntity.ok(studentService.registerStudent(request));
     }
 

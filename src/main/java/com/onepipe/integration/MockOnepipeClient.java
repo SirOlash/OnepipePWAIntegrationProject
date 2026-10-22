@@ -9,6 +9,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
 import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -92,7 +93,12 @@ public class MockOnepipeClient implements OnepipeClient {
         LocalDateTime createdOn = LocalDateTime.now();
         // A demo lifetime, independent of any undocumented provider expiry semantics.
         return new MockInvoice("MOCK-PAY-" + UUID.randomUUID(), transactionRef, customerEmail,
-                createdOn.format(DATE_FORMAT), createdOn.plusHours(1).format(DATE_FORMAT), subscription, false);
+                createdOn.format(DATE_FORMAT), createdOn.plusHours(1).format(DATE_FORMAT), subscription, false,
+                new MockTerms(transaction.getAmount(), transaction.getMeta() == null ? null : transaction.getMeta().getDownPayment(),
+                        transaction.getMeta() == null ? null : transaction.getMeta().getRepeatFrequency(),
+                        transaction.getMeta() == null ? null : transaction.getMeta().getRepeatStartDate(),
+                        transaction.getMeta() == null ? null : transaction.getMeta().getRepeatEndDate(),
+                        transaction.getMeta() == null ? null : transaction.getMeta().getNumberOfPayments()));
     }
 
     private static String requireReference(String value, String name) {
@@ -103,15 +109,21 @@ public class MockOnepipeClient implements OnepipeClient {
     }
 
     private record MockInvoice(String paymentId, String transactionRef, String customerEmail, String createdOn,
-                               String expiresOn, boolean subscription, boolean cancelled) {
+                               String expiresOn, boolean subscription, boolean cancelled, MockTerms terms) {
 
         private MockInvoice cancel() {
             return cancelled ? this : new MockInvoice(paymentId, transactionRef, customerEmail, createdOn,
-                    expiresOn, subscription, true);
+                    expiresOn, subscription, true, terms);
         }
 
         private OnePipeResponse toResponse() {
             return OnePipeResponse.builder()
+                    .amountInKobo(terms.amount())
+                    .downPaymentInKobo(terms.downPayment())
+                    .repeatFrequency(terms.frequency())
+                    .repeatStartDate(terms.startDate())
+                    .repeatEndDate(terms.endDate())
+                    .numberOfPayments(terms.count())
                     .paymentId(paymentId)
                     .transactionRef(transactionRef)
                     .virtualAccountNumber("DEMO-ACCOUNT-" + paymentId)
@@ -127,4 +139,7 @@ public class MockOnepipeClient implements OnepipeClient {
                     .build();
         }
     }
+
+    private record MockTerms(BigDecimal amount, BigDecimal downPayment, String frequency,
+                             String startDate, String endDate, Integer count) { }
 }

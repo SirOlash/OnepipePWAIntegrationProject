@@ -18,6 +18,7 @@ public class BranchPaymentDto {
     private PaymentType type;
     private Integer numberOfPayments;
     private Integer completedPayments;
+    private PaymentTerms terms;
     private PaymentStatus status;
     private String date;
 }

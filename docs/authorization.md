@@ -61,8 +61,9 @@ return 409. Authorization errors do not reveal account or payment details.
 
 The local frontend's Axios interceptor already sends the stored bearer JWT. Its
 parent-email, branch-ID, student-ID and OnePipe-payment-ID request forms remain
-supported, subject to server-side checks. Successful student/payment response
-fields and payment calculations stay unchanged. Cancel/query path IDs still mean
+supported, subject to server-side checks. Existing successful response fields
+are retained; Task 6 adds planned `terms` and corrects financial calculations
+as described in [payment rules](payments.md). Cancel/query path IDs still mean
 the provider payment identifier, not the numeric database row ID.
 
 Existing parents must sign in before registering another child. The wizard should
@@ -77,8 +78,9 @@ of this backend change.
 The registration branch selector uses the public fields above. Administrative
 branch views must tolerate null private fields for branches outside their scope.
 The current frontend also has a hardcoded fallback branch and sends
-`numberOfPayments` while the backend expects `numberOfInstallments`; those existing
-frontend issues are separate from this authorization change.
+`numberOfPayments`; Task 6 accepts that registration field as an alias for
+`numberOfInstallments` (recurring installments after the down payment).
+The hardcoded branch fallback still needs a separate frontend change.
 
 ## Boundaries
 
@@ -92,7 +94,7 @@ No production readiness, hosted deployment or PostgreSQL verification is claimed
 
 ## Verification
 
-Maven compilation and the complete 254-test suite passed, with no failures,
+At Task 5 review, Maven compilation and the complete 254-test suite passed, with no failures,
 errors or skipped tests. The new coverage consists of 89 MockMvc/service
 integration cases and six focused authorization unit tests. Integration tests
 use actual Spring Security filters, signed JWTs, H2 and the real offline mock

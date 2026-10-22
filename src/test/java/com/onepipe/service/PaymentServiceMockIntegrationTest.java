@@ -1,6 +1,9 @@
 package com.onepipe.service;
 
 import com.onepipe.config.OnepipeConfiguration;
+import com.onepipe.config.SchoolFeeSchedule;
+import com.onepipe.validation.PaymentInputValidation;
+import jakarta.validation.Validation;
 import com.onepipe.controllers.TestController;
 import com.onepipe.data.entities.Branch;
 import com.onepipe.data.entities.Parent;
@@ -68,7 +71,8 @@ class PaymentServiceMockIntegrationTest {
                 }
             })
             .withUserConfiguration(OnepipeConfiguration.class, MockOnepipeClient.class,
-                    RealOnePipeClient.class, TestController.class, PaymentService.class)
+                    RealOnePipeClient.class, TestController.class, PaymentService.class, PaymentCalculator.class, SchoolFeeSchedule.class)
+            .withBean(PaymentInputValidation.class, () -> new PaymentInputValidation(Validation.buildDefaultValidatorFactory().getValidator()))
             .withBean(PaymentRepository.class, () -> mock(PaymentRepository.class))
             .withBean(StudentRepository.class, () -> mock(StudentRepository.class))
             .withBean(ParentRepository.class, () -> mock(ParentRepository.class))

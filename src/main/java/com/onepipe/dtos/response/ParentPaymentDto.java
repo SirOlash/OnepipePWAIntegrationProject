@@ -22,6 +22,7 @@ public class ParentPaymentDto {
     private BigDecimal remainingAmount;
     private Integer numberOfPayments;
     private Integer completedPayments;
+    private PaymentTerms terms;
 
     private String virtualAccountNumber;
     private String virtualAccountBankName;
