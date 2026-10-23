@@ -20,6 +20,17 @@ import java.util.Optional;
 @Repository
 public interface PaymentRepository extends JpaRepository<Payment, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Payment p where p.id = :id")
+    Optional<Payment> findLockedById(@Param("id") Long id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Payment p where p.onePipePaymentId = :providerId")
+    Optional<Payment> findLockedByOnePipePaymentId(@Param("providerId") String providerId);
+
+    @Query("select p.id from Payment p")
+    List<Long> findAllPaymentIds();
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Payment p where p.transactionRef = :ref")
     Optional<Payment> findLockedByTransactionRef(@Param("ref") String transactionRef);
 

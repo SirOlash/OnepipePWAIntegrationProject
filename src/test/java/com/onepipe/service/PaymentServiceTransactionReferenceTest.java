@@ -28,6 +28,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -54,7 +55,8 @@ class PaymentServiceTransactionReferenceTest {
     private final PaymentService service = new PaymentService(payments, provider, students,
             mock(ParentRepository.class), mock(BranchRepository.class), authorization, calculator, schoolFees,
             new PaymentInputValidation(Validation.buildDefaultValidatorFactory().getValidator()),
-            new PaymentAccounting(mock(PaymentCollectionRepository.class), calculator));
+            new PaymentAccounting(mock(PaymentCollectionRepository.class), calculator), new PaymentSchedule(Clock.systemUTC()),
+            mock(PaymentLifecycleService.class), mock(PaymentReconciliationService.class));
     private final Map<Long, Payment> savedByStudent = new HashMap<>();
 
     @BeforeEach

@@ -30,6 +30,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import java.math.BigDecimal;
 import java.security.SecureRandom;
+import java.time.LocalDateTime;
 import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -145,6 +146,8 @@ class MockPaymentSimulationIntegrationTest {
                 .amountPerCycle(type == PaymentType.SUBSCRIPTION ? new BigDecimal("100000.00") : null)
                 .installmentFrequency(type == PaymentType.SUBSCRIPTION ? InstallmentFrequency.MONTHLY : null)
                 .completedPayments(0).accountingVersion(1).requestRef(UUID.randomUUID().toString())
+                .billingAnchor(LocalDateTime.of(2025, 1, 31, 12, 0))
+                .virtualAccountExpiryDate("2099-01-01 12:00:00")
                 .transactionRef("DEMO-" + UUID.randomUUID()).onePipePaymentId("MOCK-" + UUID.randomUUID()).build());
     }
 

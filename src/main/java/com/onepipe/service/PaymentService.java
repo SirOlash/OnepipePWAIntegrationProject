@@ -31,6 +31,7 @@ import com.onepipe.exceptions.customExceptions.ResourceConflictException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -52,6 +53,9 @@ public class PaymentService {
     private final SchoolFeeSchedule schoolFees;
     private final PaymentInputValidation inputValidation;
     private final PaymentAccounting accounting;
+    private final PaymentSchedule schedule;
+    private final PaymentLifecycleService lifecycle;
+    private final PaymentReconciliationService reconciliation;
 
     // --- 1. Called when a Student Registers ---
     @Transactional
@@ -71,6 +75,7 @@ public class PaymentService {
                 .totalAmount(totalFee)
                 .completedPayments(0)
                 .accountingVersion(1)
+                .billingAnchor(schedule.anchorNow())
                 .description("School Fees for " + student.getClassGrade().name());
 
         String requestRef = UUID.randomUUID().toString();
@@ -146,6 +151,7 @@ public class PaymentService {
                 .totalAmount(amount)
                 .completedPayments(0)
                 .accountingVersion(1)
+                .billingAnchor(schedule.anchorNow())
                 .description(description);
 
         // Generate unique references
@@ -295,8 +301,7 @@ public class PaymentService {
     }
 
     private LocalDateTime firstBillingDate(Payment payment) {
-        LocalDateTime created = payment.getCreatedAt() != null ? payment.getCreatedAt() : LocalDateTime.now();
-        return calculator.nextBillingDate(created, payment.getInstallmentFrequency());
+        return schedule.firstBillingDate(payment);
     }
 
     public PaymentTerms paymentTerms(Payment payment) {
@@ -312,7 +317,7 @@ public class PaymentService {
         }
         boolean recurring = payment.getPaymentType() != PaymentType.SINGLE_PAYMENT;
         LocalDateTime start = recurring && payment.getInstallmentFrequency() != null
-                && payment.getCreatedAt() != null ? firstBillingDate(payment) : null;
+                && payment.getBillingAnchor() != null ? firstBillingDate(payment) : null;
         PaymentAccounting.Progress progress = accounting.snapshot(payment);
         BigDecimal remaining = progress.remainingAmount();
         String basis = progress.balanceBasis();
@@ -320,26 +325,9 @@ public class PaymentService {
                 payment.getInstallmentFrequency(), start, null, remaining, basis, progress.confirmedAmount());
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void cancelSubscription(String onePipeId) {
-        Payment payment = authorization.payment(onePipeId);
-
-        if (payment.getPaymentType() != PaymentType.SUBSCRIPTION) {
-            throw new ResourceConflictException("Only subscriptions can be cancelled");
-        }
-
-        if (payment.getStatus() == PaymentStatus.CANCELLED) {
-            throw new ResourceConflictException("Subscription is already cancelled");
-        }
-
-        boolean success = onePipeClient.cancelMandate(payment);
-
-        if (success) {
-            payment.setStatus(PaymentStatus.CANCELLED);
-            paymentRepository.save(payment);
-        } else {
-            throw new RuntimeException("OnePipe failed to process cancellation");
-        }
+        lifecycle.cancelByProviderId(onePipeId);
     }
 
     @Transactional(readOnly = true)
@@ -422,52 +410,12 @@ public class PaymentService {
 
     @Scheduled(fixedRate = 60000)
     public void expireOverduePayments() {
-        // 1. Fetch all PENDING payments
-        List<Payment> pendingPayments = paymentRepository.findByStatus(PaymentStatus.PENDING);
-
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-        LocalDateTime now = LocalDateTime.now();
-
-        for (Payment payment : pendingPayments) {
-            String expiryStr = payment.getVirtualAccountExpiryDate();
-
-            // Skip if no expiry date (e.g. manual payments)
-            if (expiryStr == null || expiryStr.isEmpty()) {
-                continue;
-            }
-
-            try {
-                // 2. Parse the OnePipe Date String
-                // Handle potential format differences (OnePipe sometimes sends different formats)
-                // We assume "yyyy-MM-dd HH:mm:ss" based on your logs
-                LocalDateTime expiryDate = LocalDateTime.parse(expiryStr, formatter);
-
-                // 3. Check if Expired
-                if (expiryDate.isBefore(now)) {
-                    System.out.println("⚠️ Expiring Payment ID: " + payment.getId() + " (Time elapsed)");
-
-                    payment.setStatus(PaymentStatus.CANCELLED);
-                    paymentRepository.save(payment);
-                }
-            } catch (Exception e) {
-                // Log error but don't stop the loop for other payments
-                System.err.println("Error parsing date for payment " + payment.getId() + ": " + expiryStr);
-            }
-        }
+        lifecycle.expireAll();
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public OnePipeQueryResponse queryAndFixPaymentStatus(String onePipeId) {
-        Payment payment = authorization.payment(onePipeId);
-        // Authorized diagnostics remain available. A provider query is not a verified collection event.
-        onePipeClient.queryTransaction(payment.getTransactionRef());
-        return OnePipeQueryResponse.builder()
-                .transactionRef(payment.getTransactionRef())
-                .requestRef(payment.getRequestRef())
-                .onePipePaymentId(payment.getOnePipePaymentId())
-                .status(payment.getStatus().name())
-                .message("Read-only provider query completed; local accounting was not changed.")
-                .build();
+        return reconciliation.query(onePipeId);
     }
 
     private void validateNoExistingSchoolFeesPayment(Student student) {

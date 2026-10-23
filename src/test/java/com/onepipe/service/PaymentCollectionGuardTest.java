@@ -10,6 +10,7 @@ import org.springframework.mock.env.MockEnvironment;
 import org.springframework.security.access.AccessDeniedException;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.Clock;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -22,7 +23,8 @@ class PaymentCollectionGuardTest {
         var payments = mock(PaymentRepository.class);
         var collections = mock(PaymentCollectionRepository.class);
         var worker = new PaymentCollectionTransaction(payments, collections, new PaymentCalculator(),
-                mock(PaymentAccounting.class), new PaymentCollectionGuard(environment, authorization));
+                mock(PaymentAccounting.class), new PaymentCollectionGuard(environment, authorization),
+                new PaymentSchedule(Clock.systemUTC()));
         assertThatThrownBy(() -> worker.confirmMock("event", "reference", "FULL", BigDecimal.ONE, "NGN", Instant.now()))
                 .isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> worker.simulate("reference", "FULL")).isInstanceOf(AccessDeniedException.class);
@@ -35,7 +37,8 @@ class PaymentCollectionGuardTest {
         doThrow(new AccessDeniedException("Access denied")).when(authorization).requireSuperAdmin();
         var payments = mock(PaymentRepository.class); var collections = mock(PaymentCollectionRepository.class);
         var worker = new PaymentCollectionTransaction(payments, collections, new PaymentCalculator(),
-                mock(PaymentAccounting.class), new PaymentCollectionGuard(environment("dev", "mock"), authorization));
+                mock(PaymentAccounting.class), new PaymentCollectionGuard(environment("dev", "mock"), authorization),
+                new PaymentSchedule(Clock.systemUTC()));
         assertThatThrownBy(() -> worker.simulate("reference", "FULL")).isInstanceOf(AccessDeniedException.class);
         verifyNoInteractions(payments, collections);
     }

@@ -13,6 +13,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.*;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.*;
@@ -24,7 +25,8 @@ class PaymentBalanceTest {
     private final PaymentService service = new PaymentService(mock(PaymentRepository.class), mock(OnepipeClient.class),
             mock(StudentRepository.class), mock(ParentRepository.class), mock(BranchRepository.class),
             mock(ResourceAuthorization.class), new PaymentCalculator(), mock(SchoolFeeSchedule.class), mock(PaymentInputValidation.class),
-            new PaymentAccounting(collections, new PaymentCalculator()));
+            new PaymentAccounting(collections, new PaymentCalculator()), new PaymentSchedule(Clock.systemUTC()),
+            mock(PaymentLifecycleService.class), mock(PaymentReconciliationService.class));
 
     @Test
     void historicalPendingInvoiceWithNoTrustworthyEvidenceRemainsUnknown() {

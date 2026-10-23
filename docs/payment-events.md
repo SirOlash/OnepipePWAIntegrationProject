@@ -59,7 +59,8 @@ is handled only after the worker transaction has rolled back; the facade makes
 one bounded attempt in a fresh transaction to classify replay versus conflict.
 No map, synchronized block, process-local idempotency cache or provider call is
 used. Optimistic `row_version` rejects stale updates by existing non-ledger writers.
-Those checks do not redesign cancellation or the expiry policy.
+Task 8 cancellation and expiry use compatible payment-row locks; expiry writes
+only a separate instruction-expiry marker.
 
 An existing event ID with the same payment/ref, slot, amount, NGN, MOCK source,
 collection type and normalized confirmation timestamp is an idempotent replay:
@@ -82,20 +83,22 @@ facade against committed H2 records; no persistent PostgreSQL connection is used
 | INSTALLMENT | DOWN_PAYMENT, INSTALLMENT_1 ... INSTALLMENT_n | PENDING -> ACTIVE after any valid collection; SUCCESSFUL only when exact total is confirmed | Recurring installment entries only; excludes DOWN_PAYMENT |
 | SUBSCRIPTION | CYCLE_1, CYCLE_2 ... | PENDING -> ACTIVE, then stays ACTIVE | Confirmed cycles |
 
-Finite slots may arrive out of order; each is independently allocated once.
-Subscription cycles must be canonical and sequential with no skipped cycle.
-Cycle indices are bounded to nine digits by this prototype's input validation;
-this is not a OnePipe capability claim. A cycle payment never settles an
-unlimited lifetime obligation. No due-date enforcement or scheduled charging is
-implemented here; enabling dev simulation lets a super admin deliberately
-simulate a slot before its real-world due date.
+Due finite installment slots may arrive late or out of order; each is allocated
+only once. The separate down payment is immediately eligible. Subscription
+cycles must be canonical, sequential and due, with no skipped cycle. Cycle
+indices are bounded to nine digits; this is not a provider capability claim.
+Due dates use a persisted original anchor, an injected Clock and Africa/Lagos.
+No automatic charge runs at those dates. New single-payment FULL confirmations
+also require an open, known invoice window. See
+[payment lifecycle](payment-lifecycle.md) for boundaries and monthly anchoring.
 
 New confirmations in SUCCESSFUL, CANCELLED or FAILED are rejected. Matching
 replays leave their existing state untouched. Individual invalid/failed attempts
 do not create confirmed entries, increment counters or terminate a recurring
 plan. No failure-notification, refund, chargeback or recovery policy is invented.
-How legitimate late collections or failed-attempt retries should be reconciled
-belongs to Task 8. Expiry and authorized explicit cancellation still exist.
+Late due slots remain eligible while the arrangement is PENDING/ACTIVE.
+Explicit cancellation retains confirmed evidence. Expiry never terminates a
+recurring plan or downgrades a settled invoice.
 
 For the NGN 100000.00 / three-installment example, expected slots are 20000.00,
 26666.67, 26666.67 and 26666.66. Balances are 80000.00, 53333.33, 26666.66 and
@@ -164,11 +167,14 @@ unsupported processing is not acknowledged with a 2xx. No OnePipe signature
 algorithm is assumed; re-enabling provider events requires authoritative
 documentation, a verifier and contract/security tests.
 
-`queryAndFixPaymentStatus` retains its name and authorized response contract for
-compatibility but performs a read-only query. It returns persisted local state
-and a fixed explanatory message, ignoring success/failure claims for accounting.
-It cannot insert collections or alter status/counters. Trusted provider
-reconciliation is deferred to Task 8 after verification is available.
+`queryAndFixPaymentStatus` retains its name and original authorized response
+fields. It reads a coherent local ledger snapshot, then queries only mock metadata
+outside the database transaction. Additive fields expose confirmed/remaining
+amounts, balance basis, invoice window and provider availability/consistency.
+Lost process-local metadata is unavailable, never regenerated. Raw provider
+messages and unrecognized statuses are not trusted. Queries cannot insert
+collections, repair counters or alter status. Verified real-provider
+reconciliation is still unavailable.
 
 ## Database and migration requirements
 
@@ -182,14 +188,16 @@ new records. Instant storage needs microsecond-capable timestamps and the existi
 monetary columns remain numeric(38,2). No migration or hosted schema change is
 implemented, and PostgreSQL compatibility is based on mappings, not a live DB test.
 
-## Task 8 limits
+## Lifecycle and remaining limits
 
-The known one-hour virtual-account expiry bug remains: a current pending recurring
-plan can still be cancelled before future dues. Task 8 must separate account/invoice
-expiry from plan termination and define due dates, late confirmations, failed
-attempts, cancellation consistency, cycle lifecycle and reconciliation. Version
-checks prevent a stale expiry/cancellation save from overwriting a committed
-confirmation, but do not repair the policy or undo a mock mandate call if an
-explicit cancellation loses a concurrent database update. The mock adapter state
-is not reconciled with simulated ledger confirmations. No automatic recurring
-charge, real webhook verification, migration or production readiness is claimed.
+Task 8 fixes the pending-recurring-plan expiry defect and mock cancellation
+rollback divergence. It adds due-date enforcement, anchored billing dates and
+read-only ledger/provider diagnostics. [Payment lifecycle](payment-lifecycle.md)
+defines the rules and nullable billing_anchor / virtual_account_expired_at
+schema additions. No historical backfill or migration is performed.
+
+The mock adapter remains process-local metadata, not a bank ledger. Its Pending
+response can disagree with the committed local lifecycle, and is reported
+separately. Real webhook verification, trusted external reconciliation, automatic
+recurring charges, provider account renewal and production readiness remain
+unimplemented.

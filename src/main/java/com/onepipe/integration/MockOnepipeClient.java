@@ -7,7 +7,11 @@ import com.onepipe.integration.dto.OnePipeInvoiceRequest;
 import com.onepipe.integration.dto.OnePipeResponse;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
+import com.onepipe.config.PaymentTimeConfiguration;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.math.BigDecimal;
 import java.time.format.DateTimeFormatter;
@@ -31,6 +35,20 @@ public class MockOnepipeClient implements OnepipeClient {
 
     private final ConcurrentMap<String, String> merchants = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, MockInvoice> invoices = new ConcurrentHashMap<>();
+    private final Clock clock;
+
+    public MockOnepipeClient() {
+        this.clock = Clock.system(PaymentTimeConfiguration.PAYMENT_ZONE);
+    }
+
+    @Autowired
+    public MockOnepipeClient(ObjectProvider<Clock> clocks) {
+        this.clock = clocks.getIfAvailable(() -> Clock.system(PaymentTimeConfiguration.PAYMENT_ZONE));
+    }
+
+    public MockOnepipeClient(Clock clock) {
+        this.clock = clock;
+    }
 
     @Override
     public String createMerchant(CreateBranchRequest requestDetails, String transactionRef, String requestRef) {
@@ -90,7 +108,7 @@ public class MockOnepipeClient implements OnepipeClient {
         }
         boolean subscription = transaction.getMeta() != null
                 && "subscription".equalsIgnoreCase(transaction.getMeta().getType());
-        LocalDateTime createdOn = LocalDateTime.now();
+        LocalDateTime createdOn = LocalDateTime.ofInstant(clock.instant(), PaymentTimeConfiguration.PAYMENT_ZONE);
         // A demo lifetime, independent of any undocumented provider expiry semantics.
         return new MockInvoice("MOCK-PAY-" + UUID.randomUUID(), transactionRef, customerEmail,
                 createdOn.format(DATE_FORMAT), createdOn.plusHours(1).format(DATE_FORMAT), subscription, false,

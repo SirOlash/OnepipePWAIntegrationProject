@@ -27,6 +27,7 @@ import org.springframework.test.context.*;
 import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -322,6 +323,8 @@ class PaymentCollectionIntegrationTest {
                 .downPaymentAmount(type == PaymentType.INSTALLMENT ? new BigDecimal("20000.00") : null)
                 .amountPerCycle(type == PaymentType.SINGLE_PAYMENT ? null : new BigDecimal(type == PaymentType.INSTALLMENT ? "26666.67" : "100000.00"))
                 .numberOfPayments(type == PaymentType.INSTALLMENT ? 3 : null)
+                .billingAnchor(LocalDateTime.of(2025, 1, 31, 12, 0))
+                .virtualAccountExpiryDate("2099-01-01 12:00:00")
                 .installmentFrequency(type == PaymentType.SINGLE_PAYMENT ? null : InstallmentFrequency.MONTHLY).build());
     }
 

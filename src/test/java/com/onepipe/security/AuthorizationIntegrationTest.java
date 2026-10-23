@@ -187,7 +187,8 @@ class AuthorizationIntegrationTest {
                 .andExpect(jsonPath("$.status").value("PENDING"));
         http.perform(as(caller, operation("cancel", false))).andExpect(status().isOk());
         assertThat(payments.findById(paymentA.getId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.CANCELLED);
-        assertThat(provider.queryTransaction(paymentA.getTransactionRef()).getStatus()).isEqualTo("Cancelled");
+        // The persistent lifecycle is authoritative; metadata in the adapter is not a second financial store.
+        assertThat(provider.queryTransaction(paymentA.getTransactionRef()).getStatus()).isEqualTo("Pending");
     }
 
     @ParameterizedTest
@@ -573,7 +574,7 @@ class AuthorizationIntegrationTest {
         OnePipeResponse result = provider.sendInvoice(invoice);
         return payments.save(Payment.builder().student(student).parent(student.getParent()).branch(student.getBranch())
                 .category(PaymentCategory.ADHOC_PAYMENT).paymentType(PaymentType.SUBSCRIPTION).status(PaymentStatus.PENDING)
-                .totalAmount(new BigDecimal("100.00")).amountPerCycle(new BigDecimal("100.00")).completedPayments(0)
+                .totalAmount(new BigDecimal("100.00")).amountPerCycle(new BigDecimal("100.00")).completedPayments(0).accountingVersion(1)
                 .description("Synthetic payment").requestRef(invoice.getRequestRef()).transactionRef(tx.getTransactionRef())
                 .onePipePaymentId(result.getPaymentId()).virtualAccountNumber(result.getVirtualAccountNumber()).build());
     }

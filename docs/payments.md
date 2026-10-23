@@ -77,18 +77,19 @@ Amounts/counts producing zero collections are rejected. No default count or
 frequency is substituted for missing/invalid data. Recurring ad-hoc requests may
 supply frequency/count or reuse a complete valid saved student configuration.
 
-First recurring billing is one selected interval after invoice creation, using
-the invoice creation timestamp. Calendar months use Java calendar arithmetic
-(January 31 + one month becomes the last valid day of February). Times retain
-the application's existing local `LocalDateTime` convention; no provider time
-zone contract is claimed. Later event execution and recurring date reconciliation
-are outside this task.
+First recurring billing is one selected interval after the persisted original
+billing anchor, using the injected payment clock and Africa/Lagos zone. Each
+ordinal is calculated from that same anchor: January 31 -> February 28/29 ->
+March 31. Due installment slots can be late or out of order, but future slots
+cannot be newly confirmed. Down payment remains a separate immediately eligible
+slot. See [billing and expiry policies](payment-lifecycle.md).
 
 The existing OnePipe request can represent total/down/count/frequency/start date,
 but has no documented field here for a variable final installment. No new
 provider fields are invented. Exact local scheduling is tested; real-provider
-rounding or variable collection support remains unverified. Mock mode sends no
-requests and executes no collections.
+rounding or variable collection support remains unverified. The mock adapter
+sends no provider requests or automatic charges. Guarded simulation records only
+local synthetic collections.
 
 ## Unlimited subscriptions
 
@@ -97,21 +98,19 @@ For a school-fee subscription this means the configured class fee on every cycle
 not repayment of one finite tuition bill. ADHOC subscriptions use their specified
 cycle amount. Choose this plan deliberately; a finite obligation uses installments.
 
-Frequency is required. Planned first billing is one selected interval after
-invoice creation. The planned terms have no down payment, automatic end date or
-finite installment count. An irrelevant installment count is not used or stored.
-Virtual-account expiry must not imply subscription termination, but the current
-expiry scheduler can still cancel the entire pending subscription. This is an
-unresolved lifecycle defect, not a subscription end date; see the high-priority
-Task 8 requirement below. Explicit cancellation retains the existing
-authenticated route and state handling.
+Frequency is required. First billing is one selected interval after the original
+persisted anchor. The plan has no down payment, automatic end date or finite
+installment count. New cycle confirmations must be due and sequential; late
+cycles remain eligible. Account expiry does not terminate the subscription.
+Authorized explicit cancellation ends its local lifecycle while preserving all
+confirmed cycles. No automatic debit occurs.
 
-There is no persisted cycle-obligation or confirmed-payment ledger. Therefore an
-unlimited subscription has no aggregate finite `remainingAmount`; it returns null
-with `terms.balanceBasis=UNBOUNDED_SUBSCRIPTION`. The existing `totalAmount` and
-API `amount` fields denote the per-cycle charge for this plan, not lifetime debt.
-Confirmed cycle amounts are recorded individually in the Task 7 ledger; automatic
-due-date and cycle-obligation lifecycle management remains Task 8 work.
+Unlimited subscriptions have no aggregate finite `remainingAmount`; it returns
+null with `terms.balanceBasis=UNBOUNDED_SUBSCRIPTION`. Confirmed cycle amounts
+are persisted individually in the collection ledger. No separate future-cycle
+obligation table is created. The existing `totalAmount` and API `amount` fields
+denote the per-cycle charge for this plan, not lifetime debt.
+
 
 ## Confirmed balances and accounting
 
@@ -134,73 +133,27 @@ unknown and cannot be adopted silently. Null balances/confirmed amounts are not 
 The [payment-event design](payment-events.md) describes atomic confirmation,
 identity uniqueness and explicit transitions. Real webhook submissions now fail
 closed with 503. Provider queries remain authorized but read-only, even when a
-provider claims success/failure. Expiry and cancellation policy still require Task 8;
-optimistic version checks guard stale writes without repairing the expiry policy.
+provider claims success/failure. Task 8 separates expiry, scheduling and
+cancellation from financial confirmation; see [payment lifecycle](payment-lifecycle.md).
 
-## Task 8: Payment Lifecycle and Reconciliation
+## Payment lifecycle and reconciliation
 
-**High priority: verified limitation; not corrected in Task 6.**
-[MockOnepipeClient.newInvoice](../src/main/java/com/onepipe/integration/MockOnepipeClient.java)
-assigns every new invoice a virtual-account expiry one hour after creation,
-including installment and unlimited subscription invoices.
-[PaymentService.expireOverduePayments](../src/main/java/com/onepipe/service/PaymentService.java)
-runs every 60 seconds, loads every `PENDING` payment and, when its stored
-`virtualAccountExpiryDate` is before the current time, saves the entire payment
-as `CANCELLED`. It does not check payment type, billing frequency, first/next
-billing dates or whether any recurring installment is due. Other statuses are
-not selected by this job.
+Task 8 replaces the previous recurring-plan expiry defect with separate account
+expiry markers and a single-payment window policy. Expiry never changes financial
+status, counters or collections. Recurring schedules survive the mock account's
+one-hour lifetime. Single-payment windows close at the expiry boundary; missing
+or malformed single-payment expiry fails closed for new confirmations.
 
-Consequently, on a scheduler run after that one-hour expiry, a pending installment
-plan or unlimited subscription can be cancelled locally before its first recurring
-charge is due. Even the earliest supported recurring interval is one day. An
-unlimited plan's null end date therefore does not currently guarantee that its
-database status will remain pending until an intentional lifecycle transition.
-The job does not call `cancelMandate` or update mock provider state: a mock query
-can continue reporting `Pending` while the database says `CANCELLED`.
+Cancellation, expiry and confirmation serialize on the same payment row.
+Cancellation uses the committed database lifecycle without changing adapter maps,
+so a database rollback cannot leave an externally mutated mock mandate. Original
+collection replays are checked before new-event due/window/state rules.
 
-**High-priority Task 8 requirement:** distinguish the lifetime of an invoice's
-virtual account from the lifetime of the installment plan or subscription.
-Virtual-account expiry alone must not imply subscription termination, cancellation
-of the entire installment plan, payment confirmation or discharge of future
-obligations. Define account/invoice expiry separately from recurring-plan
-termination and explicitly reconcile database/provider lifecycle state. Single
-invoice expiry and authorized explicit cancellation need their own agreed rules.
-Do not infer undocumented OnePipe account-renewal or mandate behavior. This
-requirement was first recorded during Task 6 review. Task 7 closes unverified
-webhook mutation and adds a ledger and optimistic version protection, but leaves
-the expiry policy unchanged. It does not implement Task 8.
-
-Recommended regression tests for the future Task 8 correction:
-
-- Use an injected or otherwise controllable clock. Parameterize `INSTALLMENT`
-  and `SUBSCRIPTION` across `DAILY`, `WEEKLY` and `MONTHLY`: advance past account
-  expiry while first/next billing is still in the future, run expiry handling,
-  and verify the entire plan is not cancelled. Preserve stored amounts, planned
-  schedule, counts and confirmed-payment evidence; make no mandate-cancellation
-  call merely because the account expired.
-- Cover expiry before and after a recurring due date. Account expiry alone must
-  neither cancel the entire recurring arrangement nor fabricate a collection or
-  successful payment. Due-date reconciliation must follow the separately defined
-  Task 8 policy.
-- Run expiry/reconciliation repeatedly and verify idempotent handling and
-  consistent, explicitly reconciled database/provider state. Cover pending and
-  active plans, recorded settlements and already-cancelled plans without reviving
-  terminal records or overwriting confirmed accounting evidence.
-- Define and test just-before, exactly-at and just-after expiry boundaries, plus
-  absent and malformed expiry values. A bad timestamp must not stop valid records
-  from being processed. Keep separate tests for the agreed single-payment expiry
-  policy and authorized explicit subscription cancellation.
-- Add an H2/mock integration case using an actual mock invoice: advance beyond
-  its one-hour virtual-account expiry but before the first recurring due date,
-  invoke expiry handling deterministically, and verify the plan remains viable
-  with the expected mock state and no fabricated payment. No real provider calls
-  or hour-long sleeps are needed.
-
-Existing tests assert the mock's one-hour expiry and initial recurring terms;
-Task 7 additionally tests version protection against stale detached updates
-after settlement. Neither establishes correct expiry policy for pending plans,
-and no current test exercises `expireOverduePayments()` itself. The Task 8 expiry
-tests above remain recommendations; the lifecycle correction is not implemented.
+Read-only reconciliation returns local ledger balances separately from
+process-local provider availability and disagreement. It never creates a
+collection or changes lifecycle state. Historical rows remain unknown; a missing
+billing anchor is not automatically reconstructed. See the complete
+[lifecycle, schedule, concurrency and schema policy](payment-lifecycle.md).
 
 ## Validation and frontend compatibility
 

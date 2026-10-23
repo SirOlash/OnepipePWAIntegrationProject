@@ -22,6 +22,7 @@ public class PaymentCollectionTransaction {
     private final PaymentCalculator calculator;
     private final PaymentAccounting accounting;
     private final PaymentCollectionGuard guard;
+    private final PaymentSchedule schedule;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public PaymentCollectionResult confirmMock(String eventId, String transactionRef, String slot,
@@ -41,7 +42,7 @@ public class PaymentCollectionTransaction {
         Payment payment = payments.findLockedByTransactionRef(transactionRef).orElseThrow(ResourceNotFoundException::new);
         PlannedCollection expected = expected(payment, slot);
         return confirmLocked(payment, "MOCK-EVENT-" + UUID.randomUUID(), slot, expected.amount(),
-                Instant.now().truncatedTo(ChronoUnit.MICROS));
+                schedule.now().truncatedTo(ChronoUnit.MICROS));
     }
 
     private PaymentCollectionResult confirmLocked(Payment payment, String eventId, String slot,
@@ -68,11 +69,13 @@ public class PaymentCollectionTransaction {
         PaymentAccounting.Progress before = accounting.snapshot(payment);
         if (before.confirmedAmount() == null || before.completedPayments() == null
                 || !Objects.equals(payment.getCompletedPayments(), before.completedPayments())) throw conflict();
+        if ((payment.getStatus() == PaymentStatus.PENDING) != (before.confirmedAmount().signum() == 0)) throw conflict();
         if (payment.getPaymentType() == PaymentType.SUBSCRIPTION) {
             if (!slot.equals("CYCLE_" + ((long) before.completedPayments() + 1))) throw conflict();
         } else if (before.confirmedAmount().add(amount).compareTo(payment.getTotalAmount()) > 0) {
             throw conflict();
         }
+        schedule.requireDue(payment, slot);
         PaymentCollection inserted = collections.saveAndFlush(PaymentCollection.builder()
                 .eventId(eventId).payment(payment).transactionRef(payment.getTransactionRef()).collectionSlot(slot)
                 .confirmedAmount(amount).currency("NGN").source(CollectionSource.MOCK).confirmedAt(confirmedAt)

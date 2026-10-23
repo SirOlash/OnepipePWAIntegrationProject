@@ -31,18 +31,19 @@ unknown queries return `NotFound`. Restarting clears mock adapter state even if
 application records persist in PostgreSQL. No payment QR code is generated;
 nullable QR fields remain in the response contract.
 
-A scheduled job currently cancels any pending payment whose virtual-account
-expiry has passed, without distinguishing payment types or recurring due dates.
-The mock's one-hour account expiry can therefore cancel an installment plan or
-unlimited subscription before its first recurring payment is due. Account expiry
-must not imply termination of the entire recurring plan; this remains a
-**high-priority Task 8: Payment Lifecycle and Reconciliation requirement**, not
-an implemented fix. See the [verified limitation and proposed regression tests](docs/payments.md#task-8-payment-lifecycle-and-reconciliation).
-Authorized provider queries are read-only. Real webhooks return 503 because
-verification is unavailable; they cannot confirm money or change financial state.
-See [persistent collection accounting and dev simulation](docs/payment-events.md).
-Recurring lifecycle reconciliation remains unfinished. See
-[mock provider behavior and limitations](docs/mock-onepipe.md) for details.
+The expiry scheduler records account expiry separately from financial status.
+A single-payment window closes at its valid deadline; recurring plans survive
+account expiry. Explicit mock subscription cancellation is database-authoritative.
+Due dates use an injectable clock in Africa/Lagos and a persisted billing anchor;
+new simulated subscription cycles must be due and sequential. No automatic
+charges run. See [lifecycle rules and reconciliation](docs/payment-lifecycle.md).
+
+Authorized queries report committed ledger balances and separate mock metadata
+diagnostics without changing accounting. Missing adapter state after restart is
+reported as unavailable. Real webhooks still return 503 because verification is
+unavailable; they cannot confirm money or change financial state. See
+[persistent collection accounting and dev simulation](docs/payment-events.md)
+and [mock provider limitations](docs/mock-onepipe.md).
 Use synthetic records for this demo.
 
 ## Architecture
@@ -107,7 +108,8 @@ rejection-only route; it cannot enter the guarded simulated collection processor
 
 This internship prototype is not a production payment system. The authorization
 checks do not establish production payment integrity. Real webhook verification
-and lifecycle reconciliation remain unavailable. Public contact verification, rate limiting,
+and trusted bank reconciliation remain unavailable. Offline lifecycle handling
+does not verify real money movement. Public contact verification, rate limiting,
 token revocation and restrictive CORS remain separate work. See the
 [authorization policy and frontend implications](docs/authorization.md).
 

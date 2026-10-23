@@ -43,9 +43,10 @@ the test command. No hosted deployment or database connection has been verified.
   A repeated request does not create a new invoice or apply changed input terms.
 - New invoices are `Pending`. Querying a known reference returns its current mock
   state. Unknown references return `NotFound`, not success.
-- Cancellation uses the existing boolean contract. A matching known subscription
-  becomes `Cancelled`; repeating that cancellation remains successful. Unknown or
-  mismatched records return `false`.
+- The adapter's standalone boolean cancellation contract still modifies its
+  process-local metadata, but application cancellation no longer calls it.
+  The locked database lifecycle is authoritative; an authorized cancellation
+  preserves the ledger and succeeds idempotently without a pre-commit map write.
 - State lives in thread-safe maps inside this application process. Restarting the
   application loses mock merchant/invoice state. Database persistence does not
   persist this simulated provider state; a query after restart can return
@@ -55,13 +56,11 @@ the test command. No hosted deployment or database connection has been verified.
   occurs, no provider messaging is sent, and no payment QR code is generated.
   The existing nullable QR response fields remain available.
 - Mock invoices have a fixed one-hour demonstration expiry, formatted as
-  `yyyy-MM-dd HH:mm:ss` for compatibility with the existing local expiry job.
-  That job currently cancels the entire expired `PENDING` database payment
-  regardless of type or recurring due date. This can prematurely cancel an
-  installment plan or unlimited subscription; it does not cancel the mock
-  mandate, whose query can still return `Pending`. Separating account expiry
-  from plan termination is a high-priority Task 8 lifecycle/reconciliation
-  requirement; see [payment lifecycle limitations and regression tests](payments.md#task-8-payment-lifecycle-and-reconciliation).
+  `yyyy-MM-dd HH:mm:ss` in Africa/Lagos using the injected Clock. The expiry job
+  records a separate marker; it never cancels an installment or subscription.
+  A single-payment window closes at now >= expiry and unknown metadata fails
+  closed for new FULL confirmations. Original event replays remain valid.
+  See [lifecycle rules](payment-lifecycle.md).
 - Returned response objects are copies; modifying one cannot change stored state.
 
 The mock invoice adapter never returns `Successful`; it remains an in-memory
@@ -71,7 +70,7 @@ It confirms simulated collections without calling the adapter or modifying its
 maps. Ledger state and balances are authoritative for these simulated collections;
 mock invoice queries can still say `Pending` after a simulated ledger settlement.
 The public webhook now returns 503 without parsing/logging a payload or mutating
-financial state. Real verification and lifecycle reconciliation remain unavailable.
+financial state. Real verification and trusted bank reconciliation remain unavailable.
 Financial calculations are described in [payment rules](payments.md).
 
 ## Real adapter boundary
@@ -111,12 +110,15 @@ fields. No per-cycle amount list or final-installment field has been invented
 for OnePipe. The exact variable installment schedule is calculated locally and
 returned in API `terms`; historical real-provider rounding and recurring-field
 semantics cannot be verified against the discontinued internship environment.
-Mock mode records planned terms and never executes collections. The subscription
-request has no automatic end date. The mock's one-hour virtual-account expiry
-should be separate from subscription billing and termination, but the current
-scheduler violates that separation by cancelling expired pending database plans.
-This known Task 8 defect remains unfixed; removing the old short subscription
-window did not repair recurring-plan expiry.
+The mock adapter records planned terms; guarded simulation records collections
+only in the local ledger and never executes a bank charge. The subscription
+request has no automatic end date. Account expiry is separate from its
+billing and termination. New simulated cycles must be due and sequential,
+anchored to the persisted original billing date; expiry never cancels the plan.
+Explicit cancellation changes only the locked database lifecycle. An adapter
+Pending response afterward is a reported diagnostic disagreement, not financial
+authority. Lost metadata after restart is reported UNAVAILABLE; queries never
+recreate invoices, account details or collection records.
 
 Mock replay consistency is not webhook idempotency. No OnePipe webhook signature
 specification is assumed or implemented here.

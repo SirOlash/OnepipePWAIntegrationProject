@@ -84,6 +84,7 @@ class PaymentRuntimeFailureIntegrationTest {
         payment = payments.save(Payment.builder().category(PaymentCategory.ADHOC_PAYMENT)
                 .paymentType(PaymentType.SINGLE_PAYMENT).status(PaymentStatus.PENDING)
                 .totalAmount(TOTAL).completedPayments(0).accountingVersion(1)
+                .virtualAccountExpiryDate("2099-01-01 12:00:00")
                 .requestRef(UUID.randomUUID().toString()).transactionRef("DEMO-" + UUID.randomUUID())
                 .onePipePaymentId("MOCK-" + UUID.randomUUID()).build());
         clearInvocations(provider);

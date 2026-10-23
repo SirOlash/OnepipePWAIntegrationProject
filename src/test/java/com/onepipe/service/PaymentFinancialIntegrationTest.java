@@ -135,7 +135,7 @@ class PaymentFinancialIntegrationTest {
         assertThat(meta.getRepeatFrequency()).isEqualTo(frequency.name().toLowerCase(Locale.ROOT));
         assertThat(meta.getRepeatEndDate()).isNull();
         assertThat(meta.getRepeatStartDate()).isEqualTo(new PaymentCalculator()
-                .nextBillingDate(payment.getCreatedAt(), frequency).format(PROVIDER_DATE));
+                .nextBillingDate(payment.getBillingAnchor(), frequency).format(PROVIDER_DATE));
         OnePipeResponse mock = provider.queryTransaction(payment.getTransactionRef());
         assertThat(mock.getAmountInKobo()).isEqualTo(new BigDecimal("10000000"));
         assertThat(mock.getDownPaymentInKobo()).isEqualTo(new BigDecimal("2000000"));
@@ -164,7 +164,7 @@ class PaymentFinancialIntegrationTest {
         assertThat(meta.getType()).isEqualTo("subscription");
         assertThat(meta.getRepeatFrequency()).isEqualTo(frequency.name().toLowerCase(Locale.ROOT));
         assertThat(meta.getRepeatStartDate()).isEqualTo(new PaymentCalculator()
-                .nextBillingDate(payment.getCreatedAt(), frequency).format(PROVIDER_DATE));
+                .nextBillingDate(payment.getBillingAnchor(), frequency).format(PROVIDER_DATE));
         assertThat(meta.getRepeatEndDate()).isNull(); assertThat(meta.getDownPayment()).isNull();
         assertThat(meta.getNumberOfPayments()).isNull();
         var mock = provider.queryTransaction(payment.getTransactionRef());
