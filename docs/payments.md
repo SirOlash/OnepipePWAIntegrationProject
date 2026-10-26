@@ -13,7 +13,8 @@ All domain, database and frontend API amounts are `BigDecimal` Nigerian naira
 (NGN), normalized to two decimal places. Submitted amounts must be positive and
 have at most two decimal places; even `100.000` is rejected rather than rounded.
 The existing Hibernate monetary mapping is numeric(38,2); inputs are limited to
-36 integer digits and two fractional digits. No schema migration is introduced.
+36 integer digits and two fractional digits. The fresh PostgreSQL Flyway schema
+uses the same precision; see [database migrations](database-migrations.md).
 Only provider request construction converts NGN to integral kobo, exactly once:
 `100000.00 NGN -> 10000000 kobo`. Neither adapter multiplies again. Calculations
 use no floating-point arithmetic.

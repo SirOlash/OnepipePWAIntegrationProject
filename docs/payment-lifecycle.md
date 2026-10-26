@@ -170,13 +170,18 @@ returns the existing success response. Clients should distinguish an expired
 payment instruction from a cancelled plan and show unknown balances as unknown.
 No frontend files were changed.
 
-In addition to Task 7's ledger/provenance/version requirements, hosted PostgreSQL
-will need nullable Payment columns `billing_anchor` (timestamp(6) without time
-zone, interpreted in Africa/Lagos) and `virtual_account_expired_at` (Hibernate
-Instant-compatible timestamp(6) with time zone). Existing rows must stay null
-unless a reviewed evidence-based repair
-is supplied. No PostgreSQL migration, backfill or hosted schema change is made.
-Hosted remains schema-validation-only; dev/test use disposable H2 schemas.
+The fresh-database Flyway V1 migration includes Task 7's ledger/provenance/version
+requirements and nullable Payment columns `billing_anchor` (timestamp(6) without
+time zone, interpreted in Africa/Lagos) and `virtual_account_expired_at`
+(Hibernate Instant-compatible timestamp(6) with time zone). Flyway initializes
+an empty PostgreSQL database before Hibernate validates the schema; Hibernate
+does not create or update hosted tables. Dev/test retain disposable Hibernate H2
+schemas with Flyway disabled.
+
+No historical anchor, expiry marker or accounting evidence is inferred or
+backfilled. Automatic baselining is disabled, and an existing nonempty database
+requires a separately verified migration/adoption plan. See
+[database migration setup and verification](database-migrations.md).
 
 Real signature verification, trusted bank reconciliation, account renewal,
 failure/retry policy, automatic debits, persistent invoice-creation idempotency,

@@ -43,6 +43,7 @@ public class EnvironmentConfiguration {
             }
 
             rejectHikariConnectionOverrides();
+            rejectFlywayConnectionOverrides();
 
             String profile = profiles[0];
             if (!"dev".equals(profile)) {
@@ -74,6 +75,7 @@ public class EnvironmentConfiguration {
         }
 
         private void validateH2(String profile) {
+            requireValue("spring.flyway.enabled", "false", profile);
             requireValue("spring.datasource.driver-class-name", "org.h2.Driver", profile);
             String url = setting("spring.datasource.url");
             if ((url != null && !url.startsWith("jdbc:h2:mem:")) || ("dev".equals(profile) && url == null)) {
@@ -104,6 +106,25 @@ public class EnvironmentConfiguration {
             requireNonblank("security.jwt.secret-key");
             requireValue("spring.datasource.driver-class-name", "org.postgresql.Driver", "hosted");
             requireValue("spring.jpa.hibernate.ddl-auto", "validate", "hosted");
+            requireValue("spring.flyway.enabled", "true", "hosted");
+            requireValue("spring.flyway.baseline-on-migrate", "false", "hosted");
+            requireValue("spring.flyway.clean-disabled", "true", "hosted");
+            requireValue("spring.flyway.validate-on-migrate", "true", "hosted");
+            requireValue("spring.flyway.fail-on-missing-locations", "true", "hosted");
+            requireValue("spring.flyway.locations", "classpath:db/migration/postgresql", "hosted");
+            requireValue("spring.jpa.defer-datasource-initialization", "false", "hosted");
+            requireValue("spring.sql.init.mode", "never", "hosted");
+        }
+
+        private void rejectFlywayConnectionOverrides() {
+            for (String suffix : Set.of("url", "user", "password", "driver-class-name")) {
+                ConfigurationPropertyName name = ConfigurationPropertyName.of("spring.flyway." + suffix);
+                for (ConfigurationPropertySource source : ConfigurationPropertySources.get(environment)) {
+                    if (source.getConfigurationProperty(name) != null) {
+                        throw new IllegalStateException("Flyway must use the application's datasource; separate connection settings are not allowed.");
+                    }
+                }
+            }
         }
 
         private String requireNonblank(String name) {

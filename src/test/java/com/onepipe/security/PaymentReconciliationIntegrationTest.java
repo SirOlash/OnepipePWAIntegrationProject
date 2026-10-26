@@ -1,5 +1,7 @@
 package com.onepipe.security;
 
+import com.onepipe.testsupport.ManualScheduling;
+
 import com.onepipe.config.JwtService;
 import com.onepipe.data.entities.*;
 import com.onepipe.data.enums.*;
@@ -31,6 +33,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 /** Authorized HTTP queries against committed H2 ledger rows; Spring Security remains enabled. */
+@ManualScheduling
 @SpringBootTest(properties = "spring.config.location=classpath:/")
 @AutoConfigureMockMvc(print = MockMvcPrint.NONE)
 @ActiveProfiles("test")

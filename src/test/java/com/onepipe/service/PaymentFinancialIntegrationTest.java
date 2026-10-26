@@ -1,5 +1,7 @@
 package com.onepipe.service;
 
+import com.onepipe.testsupport.ManualScheduling;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.onepipe.config.JwtService;
 import com.onepipe.data.entities.*;
@@ -37,6 +39,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+@ManualScheduling
 @SpringBootTest(properties = "spring.config.location=classpath:/")
 @ActiveProfiles("test")
 @AutoConfigureMockMvc(print = MockMvcPrint.NONE)

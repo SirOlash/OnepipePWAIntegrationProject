@@ -71,6 +71,7 @@ application-private*.yaml
 *.dump
 *.backup
 !/src/main/resources/db/migration/*.sql
+!/src/main/resources/db/migration/postgresql/*.sql
 !/src/test/resources/**/*.sql
 /data/
 *.log

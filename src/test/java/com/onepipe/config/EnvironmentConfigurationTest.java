@@ -61,6 +61,7 @@ class EnvironmentConfigurationTest {
             assertThat(context.getEnvironment().getProperty("spring.datasource.driver-class-name"))
                     .isEqualTo("org.h2.Driver");
             assertThat(context.getEnvironment().getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("create-drop");
+            assertThat(context.getEnvironment().getProperty("spring.flyway.enabled")).isEqualTo("false");
             assertThat(context.getEnvironment().getProperty("DB_URL")).isNull();
             assertThat(context.getEnvironment().getProperty("ONEPIPE_API_KEY")).isNull();
             assertThat(context.getEnvironment().getProperty("ONEPIPE_CLIENT_SECRET")).isNull();
@@ -155,6 +156,11 @@ class EnvironmentConfigurationTest {
             assertThat(context.getEnvironment().getProperty("spring.datasource.driver-class-name"))
                     .isEqualTo("org.postgresql.Driver");
             assertThat(context.getEnvironment().getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
+            assertThat(context.getEnvironment().getProperty("spring.flyway.enabled")).isEqualTo("true");
+            assertThat(context.getEnvironment().getProperty("spring.flyway.locations"))
+                    .isEqualTo("classpath:db/migration/postgresql");
+            assertThat(context.getEnvironment().getProperty("spring.flyway.baseline-on-migrate")).isEqualTo("false");
+            assertThat(context.getEnvironment().getProperty("spring.flyway.clean-disabled")).isEqualTo("true");
             assertThat(context.getEnvironment().getProperty("onepipe.mode")).isEqualTo("mock");
             assertThat(context.getEnvironment().getProperty("app.demo.seed.enabled")).isEqualTo("false");
             assertThat(context.getEnvironment().getProperty("spring.datasource.hikari.maximum-pool-size"))
@@ -264,6 +270,45 @@ class EnvironmentConfigurationTest {
         ).run(context -> assertThat(context).hasNotFailed().doesNotHaveBean(DataSource.class));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"dev", "test"})
+    void h2ProfilesRejectFlywayInsteadOfExecutingPostgresqlSql(String profile) {
+        runnerFor(profile).withPropertyValues("spring.flyway.enabled=true").run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure()).hasMessageContaining("requires spring.flyway.enabled=false");
+        });
+    }
+
+    @ParameterizedTest
+    @MethodSource("flywayConnectionOverrides")
+    void flywayCannotMigrateASeparateDatasource(String profile, String property) {
+        String marker = "test-only-" + UUID.randomUUID();
+        runnerFor(profile).withPropertyValues(property + "=" + marker)
+                .withBean(DataSource.class, () -> {
+                    throw new AssertionError("Datasource creation must not run for Flyway connection overrides");
+                })
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).isInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("Flyway must use the application's datasource")
+                            .hasMessageNotContaining(marker).hasNoCause();
+                });
+    }
+
+    @Test
+    void flywayEnvironmentAliasCannotPointAtASeparateDatasource() {
+        String marker = "test-only-" + UUID.randomUUID();
+        hostedRunner(hostedSettings()).withInitializer(context -> context.getEnvironment().getPropertySources()
+                .addFirst(new SystemEnvironmentPropertySource(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME,
+                        Map.of("SPRING_FLYWAY_PASSWORD", marker))))
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasMessageContaining("Flyway must use the application's datasource")
+                            .hasMessageNotContaining(marker).hasNoCause();
+                });
+    }
+
     private ApplicationContextRunner runnerFor(String profile) {
         return "hosted".equals(profile) ? hostedRunner(hostedSettings())
                 : contextRunner.withPropertyValues("spring.profiles.active=" + profile);
@@ -312,6 +357,14 @@ class EnvironmentConfigurationTest {
                 Arguments.of("spring.datasource.driver-class-name", "org.h2.Driver"),
                 Arguments.of("spring.jpa.hibernate.ddl-auto", "create-drop"),
                 Arguments.of("spring.jpa.hibernate.ddl-auto", "update"),
+                Arguments.of("spring.flyway.enabled", "false"),
+                Arguments.of("spring.flyway.baseline-on-migrate", "true"),
+                Arguments.of("spring.flyway.clean-disabled", "false"),
+                Arguments.of("spring.flyway.validate-on-migrate", "false"),
+                Arguments.of("spring.flyway.fail-on-missing-locations", "false"),
+                Arguments.of("spring.flyway.locations", "classpath:missing-migrations"),
+                Arguments.of("spring.jpa.defer-datasource-initialization", "true"),
+                Arguments.of("spring.sql.init.mode", "always"),
                 Arguments.of("spring.datasource.username", ""),
                 Arguments.of("spring.datasource.password", ""),
                 Arguments.of("security.jwt.secret-key", ""));
@@ -333,5 +386,11 @@ class EnvironmentConfigurationTest {
                         "org.h2.jdbcx.JdbcDataSource"),
                 Arguments.of(profile, "spring.datasource.hikari.data-source-jndi-name", "spring.datasource.hikari.data-source-jndi-name",
                         "java:comp/env/jdbc/test-only")));
+    }
+
+    private static Stream<Arguments> flywayConnectionOverrides() {
+        return Stream.of("dev", "test", "hosted").flatMap(profile ->
+                Stream.of("url", "user", "password", "driver-class-name")
+                        .map(suffix -> Arguments.of(profile, "spring.flyway." + suffix)));
     }
 }

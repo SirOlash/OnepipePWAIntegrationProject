@@ -178,15 +178,20 @@ reconciliation is still unavailable.
 
 ## Database and migration requirements
 
-Dev/test disposable schemas use existing create-drop behavior. Hosted PostgreSQL
-stays schema-validation-only, and will require a later reviewed migration before
-deployment: create the ledger with the FK/unique/check constraints and add Payment
-accounting_version (nullable for legacy rows) and row_version (non-null bigint,
-backfilled to 0 for existing rows). Do not mark historical rows version1 or
-manufacture ledger records from counters. Hibernate initializes row versions on
-new records. Instant storage needs microsecond-capable timestamps and the existing
-monetary columns remain numeric(38,2). No migration or hosted schema change is
-implemented, and PostgreSQL compatibility is based on mappings, not a live DB test.
+Dev/test disposable schemas retain Hibernate `create-drop`, with Flyway disabled.
+Hosted PostgreSQL uses Flyway V1 to create the complete schema from an empty
+database before Hibernate validates it. The migration includes the ledger's
+foreign key, unique and positive-NGN checks; nullable Payment accounting_version;
+non-null bigint row_version; and the lifecycle fields. Hibernate initializes row
+versions on new records. Monetary columns remain numeric(38,2), and confirmation
+Instants use microsecond-capable timestamps with time zone.
+
+Automatic baselining is disabled. This is not an upgrade script for an existing
+nonempty database, and it neither assigns historical accounting markers nor
+manufactures collection records from counters. Existing databases require a
+separately verified adoption plan. Actual PostgreSQL migration tests and manual
+checks are separate from H2 ledger tests; see
+[database migrations and verification](database-migrations.md).
 
 ## Lifecycle and remaining limits
 
@@ -194,7 +199,8 @@ Task 8 fixes the pending-recurring-plan expiry defect and mock cancellation
 rollback divergence. It adds due-date enforcement, anchored billing dates and
 read-only ledger/provider diagnostics. [Payment lifecycle](payment-lifecycle.md)
 defines the rules and nullable billing_anchor / virtual_account_expired_at
-schema additions. No historical backfill or migration is performed.
+schema additions, included in the fresh-database Flyway migration. No historical
+payment evidence is backfilled.
 
 The mock adapter remains process-local metadata, not a bank ledger. Its Pending
 response can disagree with the committed local lifecycle, and is reported

@@ -29,10 +29,12 @@ mvn spring-boot:run "-Dspring-boot.run.profiles=dev"
 The `dev` profile selects H2, creates a temporary schema and binds HTTP to
 `127.0.0.1`. No manual dialect override is needed. The `test` profile uses isolated
 H2 databases and disallows demo seeding. The `hosted` profile requires supplied
-PostgreSQL settings and an existing compatible schema. It cannot initialize an
-empty database until later migrations are implemented. See
-[configuration details](configuration.md) for IDE setup, hosted prerequisites and
-the test command. No hosted deployment or database connection has been verified.
+PostgreSQL settings. Flyway creates the complete schema on an empty database
+before Hibernate validates it; it does not automatically adopt an existing
+nonempty database or backfill historical payment evidence. See
+[configuration details](configuration.md) for IDE setup and
+[database migrations](database-migrations.md) for local PostgreSQL verification.
+No hosted deployment is claimed.
 
 ## Mock behavior
 

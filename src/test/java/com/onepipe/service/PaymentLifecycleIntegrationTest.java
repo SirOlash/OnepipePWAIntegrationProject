@@ -1,5 +1,7 @@
 package com.onepipe.service;
 
+import com.onepipe.testsupport.ManualScheduling;
+
 import com.onepipe.data.entities.*;
 import com.onepipe.data.enums.*;
 import com.onepipe.data.repositories.*;
@@ -35,6 +37,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 /** The cancellation/expiry row lock is the same database lock used by collection confirmation. */
+@ManualScheduling
 @SpringBootTest(properties = {"spring.config.location=classpath:/", "app.demo.payments.simulation.enabled=true"})
 @ActiveProfiles("dev")
 @ContextConfiguration(initializers = PaymentLifecycleIntegrationTest.IsolatedEnvironment.class)

@@ -1,5 +1,7 @@
 package com.onepipe.security;
 
+import com.onepipe.testsupport.ManualScheduling;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.onepipe.config.JwtService;
 import com.onepipe.data.entities.Payment;
@@ -48,6 +50,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+@ManualScheduling
 @SpringBootTest(properties = {"spring.config.location=classpath:/", "app.demo.payments.simulation.enabled=true"})
 @ActiveProfiles("dev")
 @AutoConfigureMockMvc(print = MockMvcPrint.NONE)

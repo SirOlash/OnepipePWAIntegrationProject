@@ -14,7 +14,7 @@ contains no datasource settings. Database choices belong to the profile files.
 |:--------|:--------------------|:----------------|:-------------|
 | `dev` | H2 in-memory `greenfield-dev`; `create-drop` | Mock by default; historical real adapter requires explicit opt-in | `127.0.0.1` |
 | `test` | A generated H2 database name per application context; `create-drop` | Mock only; demo seeding is rejected | `127.0.0.1` |
-| `hosted` | Required PostgreSQL connection; existing schema validated | Mock only | `0.0.0.0` |
+| `hosted` | Required PostgreSQL connection; Flyway migrations, then Hibernate `validate` | Mock only | `0.0.0.0` |
 
 `PORT` selects the HTTP port in every profile and defaults to `8080`. H2 dialect
 detection is automatic; do not add the old PostgreSQL/H2 dialect workaround.
@@ -23,11 +23,13 @@ The default framework logging avoids SQL, bind-value and request-detail debug
 output. Task 7 removed raw webhook payload/signature logging and disabled real
 webhook mutation; historical provider operation remains unverified.
 
-Task 7 adds the `payment_collections` table and `payments.accounting_version` and
-`payments.row_version` columns. Disposable dev/test schemas create these through
-JPA. Hosted remains `ddl-auto=validate`: a later reviewed database migration must
-create the ledger, constraints and columns before a hosted deployment. Do not
-switch hosted to automatic schema updates. See [the schema requirements](payment-events.md#database-and-migration-requirements).
+Disposable dev/test schemas still use Hibernate `create-drop`, with Flyway
+disabled. Hosted enables Boot-managed Flyway 9.16.3 to run the complete versioned
+PostgreSQL schema before JPA initializes; Hibernate then uses `ddl-auto=validate`.
+The initial migration includes every entity, the collection ledger, constraints,
+indexes, accounting/row versions, billing anchors and account-expiry markers.
+Startup fails on migration or validation errors. Do not switch hosted to automatic
+Hibernate schema updates. See [database migrations](database-migrations.md).
 
 Payment simulation defaults off. Only in dev with mock mode, set
 `DEMO_PAYMENT_SIMULATION_ENABLED=true` (property
@@ -83,9 +85,22 @@ mvn test
 Application-startup tests explicitly select `dev` or `test` and provide transient,
 generated signing keys. Other focused tests construct only the components they
 exercise. No PostgreSQL instance, provider credentials or shared test JWT is
-required. [application-test.properties](../src/main/resources/application-test.properties)
+required for the H2 suite. [application-test.properties](../src/main/resources/application-test.properties)
 sets no fixed datasource URL: Boot generates an isolated H2 database name for each
-context. Schema creation and cleanup use `create-drop`.
+context. Schema creation and cleanup use `create-drop`; Flyway is disabled.
+
+Full application integration fixtures import the test-only `@ManualScheduling`
+configuration. It prevents automatic timer registration, so the expiry job cannot
+update a payment's optimistic row version while fixture cleanup deletes it. Tests
+still invoke expiry explicitly and retain the real transaction/concurrency checks;
+production scheduling is unchanged. Separate context regressions verify both
+manual invocation and normal scheduling without this test override.
+
+Actual PostgreSQL migration tests are opt-in: supply
+`GREENFIELD_MIGRATION_TEST_DB_URL`, `GREENFIELD_MIGRATION_TEST_DB_USERNAME` and
+`GREENFIELD_MIGRATION_TEST_DB_PASSWORD` privately for a disposable local test
+database. See [PostgreSQL test setup and verification](database-migrations.md).
+H2 results alone are not evidence of PostgreSQL migration compatibility.
 
 The `test` profile rejects real-provider and demo-seeding overrides. Do not use it
 for a persistent demonstration. Passing the suite does not establish the
@@ -126,11 +141,18 @@ the profile can be selected with:
 java -jar target/onepipe-boarding-school-1.0-SNAPSHOT.jar --spring.profiles.active=hosted
 ```
 
-The profile uses `spring.jpa.hibernate.ddl-auto=validate`. It checks an existing
-compatible schema and does not create or update tables. A new, empty database
-will fail schema validation. Schema migrations are a later task and are a
-prerequisite for initializing a fresh hosted demo; there is no Flyway/bootstrap
-step in this change.
+The profile enables Flyway before JPA and uses
+`spring.jpa.hibernate.ddl-auto=validate`. Flyway V1 creates the complete schema on
+an empty PostgreSQL database; Hibernate only validates it and never creates or
+updates hosted tables. Subsequent starts validate migration checksums and apply
+only pending versions; they do not rerun V1 or erase existing data. Migration
+failures stop startup. Flyway clean is disabled, and `baseline-on-migrate=false`
+prevents automatic adoption of an existing nonempty database.
+
+This migration path is for an empty database. Existing tables or historical data
+require a separately verified baseline/upgrade plan; no accounting markers,
+collection records or payment status are manufactured. See
+[local PostgreSQL commands, schema history and troubleshooting](database-migrations.md).
 
 This configuration work has not provisioned a database, recovered the expired
 database, changed a Render service, deployed the application or verified a hosted
@@ -213,8 +235,9 @@ initialization stops and the records require deliberate manual investigation.
 Concurrent attempts can encounter an existing uniqueness constraint and fail;
 the failed attempt rolls back. There is no distributed initialization lock or
 automatic retry. H2 remains disposable, and repeated seeding within a running
-database does not make dev data persistent. This does not implement hosted
-recruiter accounts, hosted schema initialization, or database migrations.
+database does not make dev data persistent. The seeder does not provision hosted
+recruiter accounts or run under `hosted`; Flyway initializes only the hosted
+schema, without creating demo accounts.
 
 These remain synthetic portfolio fixtures. Student/payment authorization is
 described in the [access policy](authorization.md). Profile separation does not

@@ -1,5 +1,7 @@
 package com.onepipe.service;
 
+import com.onepipe.testsupport.ManualScheduling;
+
 import com.onepipe.data.entities.Payment;
 import com.onepipe.data.entities.User;
 import com.onepipe.data.enums.*;
@@ -36,6 +38,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 /** Real transactions and H2 constraints; no provider response is used as payment evidence. */
+@ManualScheduling
 @SpringBootTest(properties = {"spring.config.location=classpath:/", "app.demo.payments.simulation.enabled=true"})
 @ActiveProfiles("dev")
 @ContextConfiguration(initializers = PaymentCollectionIntegrationTest.IsolatedEnvironment.class)

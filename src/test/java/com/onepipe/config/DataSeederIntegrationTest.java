@@ -1,5 +1,7 @@
 package com.onepipe.config;
 
+import com.onepipe.testsupport.ManualScheduling;
+
 import com.onepipe.data.entities.Branch;
 import com.onepipe.data.entities.User;
 import com.onepipe.data.enums.Role;
@@ -42,6 +44,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 
+@ManualScheduling
 @DataJpaTest(showSql = false, properties = {
         "spring.config.location=classpath:/", "app.demo.seed.enabled=true"
 })

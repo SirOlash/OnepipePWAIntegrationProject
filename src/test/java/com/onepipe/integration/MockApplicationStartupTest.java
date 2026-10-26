@@ -1,5 +1,7 @@
 package com.onepipe.integration;
 
+import com.onepipe.testsupport.ManualScheduling;
+
 import com.onepipe.config.DataSeeder;
 import com.onepipe.controllers.TestController;
 import org.junit.jupiter.api.Test;
@@ -25,6 +27,7 @@ import java.util.Base64;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@ManualScheduling
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 @ContextConfiguration(initializers = MockApplicationStartupTest.IsolatedEnvironment.class)

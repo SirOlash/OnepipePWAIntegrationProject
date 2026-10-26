@@ -58,7 +58,7 @@ Spring Boot REST API
       |             `-- RealOnePipeClient (explicit opt-in, historical API adapter)
       `-- JPA repositories
             |-- H2 (explicit dev / test profiles; in memory)
-            `-- PostgreSQL (explicit hosted profile; existing schema required)
+            `-- PostgreSQL (explicit hosted profile; Flyway schema, Hibernate validation)
 ```
 
 Mock mode makes no OnePipe calls. Only explicit real mode under `dev` creates the real
@@ -75,6 +75,7 @@ rejection-only route; it cannot enter the guarded simulated collection processor
 | Authentication | Spring Security, JWT and BCrypt |
 | Database | Local H2; optional PostgreSQL |
 | ORM | Hibernate / Spring Data JPA |
+| PostgreSQL schema | Flyway 9.16.3; versioned SQL migrations |
 | Payment adapters | Default offline mock; historical OnePipe PWA adapter |
 | Historical provider authorization | TripleDES code in the real adapter |
 | Build / packaging | Maven and Docker |
@@ -270,10 +271,14 @@ mvn test
 ```
 
 Application startup tests select `dev` or the isolated `test` profile and generate
-transient JWT keys rather than committing test credentials. The suite needs no PostgreSQL or
-OnePipe environment. Provider tests use synthetic settings and mock HTTP
-boundaries. Passing tests do not establish the historical OnePipe contract or
-repair the limitations above.
+transient JWT keys rather than committing test credentials. The H2 suite needs no
+PostgreSQL or OnePipe environment. Provider tests use synthetic settings and mock
+HTTP boundaries. Actual PostgreSQL migration tests are opt-in through
+`GREENFIELD_MIGRATION_TEST_DB_URL`, `GREENFIELD_MIGRATION_TEST_DB_USERNAME` and
+`GREENFIELD_MIGRATION_TEST_DB_PASSWORD`; an ordinary H2 run does not prove
+PostgreSQL compatibility. See [database migration verification](docs/database-migrations.md).
+Passing tests do not establish the historical OnePipe contract or repair the
+limitations above.
 
 Authorization tests use real signed JWTs and active Spring Security filters with
 two parents and two branches. They check both permitted operations and rejected
@@ -301,10 +306,13 @@ See [verified authorization coverage](docs/authorization.md#verification).
 | `DEMO_BRANCH_ADMIN_PASSWORD` | Private branch password; must match an existing orphaned account to repair it | Enabled dev seeding |
 
 Do not reuse historical internship credentials. The `hosted` profile fixes the
-PostgreSQL driver and validates an existing schema; `DB_DRIVER_CLASS` is not used.
-See [hosted prerequisites](docs/configuration.md#hosted-postgresql) before choosing
-that profile. An empty database cannot initialize until schema migrations are
-implemented in a later task.
+PostgreSQL driver and runs Flyway before Hibernate validates the schema;
+`DB_DRIVER_CLASS` is not used. V1 creates the complete schema on an empty
+PostgreSQL database. Hibernate never creates or updates hosted tables, and a
+migration failure stops startup. Automatic baselining is disabled: an existing
+nonempty database needs a separately verified adoption plan. No legacy payment
+evidence is backfilled. See [hosted prerequisites](docs/configuration.md#hosted-postgresql)
+and [local PostgreSQL setup and migration checks](docs/database-migrations.md).
 
 ## Deployment status
 
