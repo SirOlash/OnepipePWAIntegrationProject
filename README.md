@@ -1,21 +1,35 @@
-# Greenfield School Payments Demo
+# Greenfield — School Payments & OnePipe API Integration
 
 ![Java](https://img.shields.io/badge/Java-17-orange?style=flat-square&logo=java)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.1.6-brightgreen?style=flat-square&logo=springboot)
 ![Docker](https://img.shields.io/badge/Docker-Containerized-blue?style=flat-square&logo=docker)
 
-A Java 17 / Spring Boot school-payments prototype originally built for a OnePipe
-internship demonstration. It is being improved as a reproducible portfolio demo.
-The historical OnePipe credentials and API environment are unavailable, and the
-original hosted PostgreSQL database has expired.
+**An individually built, full-stack EdTech/fintech integration project** for school-fee management across branches, developed during the **OnePipe Emerging Talent Accelerator**. I built the Java/Spring Boot backend, React frontend, integrated OnePipe's PayWithAccount (PWA) APIs, and deployed a working internship demonstration.
 
-Startup requires exactly one explicit profile: `dev`, `test` or `hosted`.
-The default payment adapter is an offline mock. Its account identifiers are
-synthetic: it creates no bank accounts, sends no transfers or debits, and does not
-automatically confirm payment. Explicit dev-only super-admin simulation can record
-confirmed simulated collections in the database; it never moves money. The historical real adapter remains an explicit
-opt-in under `dev`; `test` and `hosted` require mock processing. The historical
-adapter does not establish a currently working provider integration.
+> **This project began as a real OnePipe API integration—not a mock-only application.** During the internship, I used the then-active OnePipe environment and temporary integration credentials to exercise real API calls and transfer tests, handle payment callbacks/notifications, and demonstrate payment-related notification and reminder workflows. Those were integration/demo activities, **not a claim that this system processed production school fees for real schools**.
+
+> **Why it runs in mock mode today:** After the internship, the OnePipe environment and credentials used for the demonstration were cancelled/revoked. I therefore replaced the external payment dependency with a deterministic, offline adapter so the project remains safe, testable and reviewable without access to OnePipe. The historical real-provider adapter remains in the codebase for reference, but **is not a currently verified or supported live integration**.
+
+### Then versus now
+
+| | Original internship demonstration | Current portfolio version |
+|---|---|---|
+| Payment integration | Actual OnePipe API calls, transfer-flow testing and webhook callbacks | Offline `MockOnepipeClient`; no bank/provider calls |
+| Notifications and reminders | Payment-related notification/reminder workflows exercised in the original demonstration | Not presented as a working delivery service in the current mock |
+| Accounts and funds | Temporary provider environment and credentials used for testing | Synthetic account identifiers; **no real accounts or money movement** |
+| Payment records | Original callback-driven status handling | Persistent simulated collection ledger, idempotency and deterministic payment lifecycle |
+| Availability | Originally deployed as an internship working demonstration | Local reproduction supported; hosted availability depends on a new deployment and database |
+
+The current API is deliberately **not production-ready**. Its public OnePipe webhook fails closed (HTTP 503) because the original verification contract is unavailable; no live-bank collection or transfer should be attempted. The historical integration and the present offline simulation are distinct stages of the same project.
+
+### What I built and improved
+
+- **Full-stack application:** parent registration, student onboarding, branch-specific administration, JWT-secured roles and React dashboards.
+- **Original payments integration:** OnePipe provider requests, virtual-account/mandate workflows, transfer testing, payment callbacks and notification/reminder demonstrations.
+- **Portfolio hardening:** tenant isolation, server-authoritative fees, exact `BigDecimal` NGN calculations, installment and subscription schedules, verified *simulated* collection records, durable idempotency, concurrency-safe cancellation and read-only reconciliation.
+- **Reproducibility:** safe demo seeding, local H2 profiles, PostgreSQL/Flyway migrations, automated integration tests and explicit deployment configuration.
+
+**Repository scope:** this repository contains the Spring Boot backend. See the [separate React frontend](https://github.com/SirOlash/Greenfield-Boarding-School-Frontend) for the UI.
 
 ## Overview
 
@@ -61,8 +75,8 @@ Spring Boot REST API
             `-- PostgreSQL (explicit hosted profile; Flyway schema, Hibernate validation)
 ```
 
-Mock mode makes no OnePipe calls. Only explicit real mode under `dev` creates the real
-adapter and legacy diagnostic controller. Student and payment services enforce
+Mock mode makes no OnePipe calls. Only explicit real mode under `dev` creates the
+**historical, currently unverified** real adapter and legacy diagnostic controller. Student and payment services enforce
 database-backed parent ownership and branch scope. The public webhook is a
 rejection-only route; it cannot enter the guarded simulated collection processor.
 
@@ -316,10 +330,12 @@ and [local PostgreSQL setup and migration checks](docs/database-migrations.md).
 
 ## Deployment status
 
-A Dockerfile is provided. Render and Vercel were used for the internship
-demonstration; those deployments are historical and their availability has not
-been verified. The original hosted PostgreSQL database has expired. No currently
-working hosted demo is claimed here.
+A Dockerfile is provided. The original working internship demonstration used
+Render for the backend and Vercel for the frontend. Those original deployments
+and payment credentials should **not** be treated as the current portfolio demo.
+The previous PostgreSQL database is no longer available; a fresh hosted mock
+deployment needs its own database and configuration. No working live-money
+integration or currently verified hosted URL is claimed here.
 
 The `hosted` profile reads a host-provided `PORT`, binds to `0.0.0.0` and uses
 environment-backed PostgreSQL settings. This prepares application configuration
@@ -329,8 +345,11 @@ work.
 
 ## Frontend repository
 
-The React (TypeScript + Vite) frontend source is maintained separately:
+The React (TypeScript + Vite) frontend source and its matching project history
+are maintained separately:
 [Greenfield Frontend](https://github.com/SirOlash/Greenfield-Boarding-School-Frontend).
+For integration testing, use the frontend's `fix/backend-api-alignment` branch
+with this backend's `fix/secure-demo-config` branch until they are merged.
 
 ### 👨‍💻 Author
 Olasupo Emmanuel
