@@ -6,7 +6,7 @@
 
 **An individually built, full-stack EdTech/fintech integration project** for school-fee management across branches, developed during the **OnePipe Emerging Talent Accelerator**. I built the Java/Spring Boot backend, React frontend, integrated OnePipe's PayWithAccount (PWA) APIs, and deployed a working internship demonstration.
 
-> **This project began as a real OnePipe API integration—not a mock-only application.** During the internship, I used the then-active OnePipe environment and temporary integration credentials to exercise real API calls and transfer tests, handle payment callbacks/notifications, and demonstrate payment-related notification and reminder workflows. Those were integration/demo activities, **not a claim that this system processed production school fees for real schools**.
+> **This project began as a real OnePipe API integration—not a mock-only application.** During the internship, I used the then-active OnePipe environment and temporary integration credentials to make real OnePipe API calls and carry out real transfer transactions during integration testing, receive payment callbacks/notifications, and demonstrate payment-related notification and reminder workflows. Those were integration/demo activities, **not a claim that this system processed production school fees for real schools**.
 
 > **Why it runs in mock mode today:** After the internship, the OnePipe environment and credentials used for the demonstration were cancelled/revoked. I therefore replaced the external payment dependency with a deterministic, offline adapter so the project remains safe, testable and reviewable without access to OnePipe. The historical real-provider adapter remains in the codebase for reference, but **is not a currently verified or supported live integration**.
 
@@ -14,7 +14,7 @@
 
 | | Original internship demonstration | Current portfolio version |
 |---|---|---|
-| Payment integration | Actual OnePipe API calls, transfer-flow testing and webhook callbacks | Offline `MockOnepipeClient`; no bank/provider calls |
+| Payment integration | Actual OnePipe API calls, real transfer testing and webhook callbacks | Offline `MockOnepipeClient`; no bank/provider calls |
 | Notifications and reminders | Payment-related notification/reminder workflows exercised in the original demonstration | Not presented as a working delivery service in the current mock |
 | Accounts and funds | Temporary provider environment and credentials used for testing | Synthetic account identifiers; **no real accounts or money movement** |
 | Payment records | Original callback-driven status handling | Persistent simulated collection ledger, idempotency and deterministic payment lifecycle |
