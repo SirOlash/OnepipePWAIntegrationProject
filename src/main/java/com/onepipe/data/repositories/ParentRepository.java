@@ -12,5 +12,6 @@ public interface ParentRepository extends JpaRepository<Parent, Long> {
     Optional<Parent> findByUser(User user);
     Optional<Parent> findByPhoneNumber(String phoneNumber);
     Optional<Parent> findByUser_Email(String email);
+    Optional<Parent> findByUser_EmailIgnoreCase(String email);
 
 }

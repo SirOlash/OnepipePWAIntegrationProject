@@ -6,6 +6,11 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
+import com.onepipe.security.SecurityErrorHandler;
+import io.jsonwebtoken.JwtException;
+import org.springframework.dao.IncorrectResultSizeDataAccessException;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -22,6 +27,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final UserDetailsService userDetailsService;
+    private final SecurityErrorHandler securityErrorHandler;
 
     @Override
     protected void doFilterInternal(
@@ -38,21 +44,23 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         final String authHeader = request.getHeader("Authorization");
-        final String jwt;
-        final String userEmail;
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        jwt = authHeader.substring(7);
-        userEmail = jwtService.extractUsername(jwt);
-
-        if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-            UserDetails userDetails = this.userDetailsService.loadUserByUsername(userEmail);
-
-            if (jwtService.isTokenValid(jwt, userDetails)) {
+        try {
+            String jwt = authHeader.substring(7);
+            String userEmail = jwtService.extractUsername(jwt);
+            if (userEmail == null) {
+                throw new BadCredentialsException("Invalid authentication");
+            }
+            if (SecurityContextHolder.getContext().getAuthentication() == null) {
+                UserDetails userDetails = this.userDetailsService.loadUserByUsername(userEmail);
+                if (!jwtService.isTokenValid(jwt, userDetails)) {
+                    throw new BadCredentialsException("Invalid authentication");
+                }
                 UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
                         userDetails,
                         null,
@@ -65,6 +73,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
                 SecurityContextHolder.getContext().setAuthentication(authToken);
             }
+        } catch (JwtException | IllegalArgumentException | AuthenticationException
+                 | IncorrectResultSizeDataAccessException exception) {
+            SecurityContextHolder.clearContext();
+            securityErrorHandler.commence(request, response, new BadCredentialsException("Invalid authentication"));
+            return;
         }
         filterChain.doFilter(request, response);
     }

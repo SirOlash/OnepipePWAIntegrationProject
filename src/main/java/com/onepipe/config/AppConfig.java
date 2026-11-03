@@ -21,6 +21,7 @@ public class AppConfig {
     @Bean
     public UserDetailsService userDetailsService() {
         return username -> userRepository.findByEmailIgnoreCase(username)
+                .filter(user -> user.getRole() != null)
                 .map(user -> org.springframework.security.core.userdetails.User
                         .withUsername(user.getEmail())
                         .password(user.getPassword())

@@ -1,239 +1,367 @@
-# 🏫 Greenfield – Multi-Tenant EdTech Payment Infrastructure
+# Greenfield — School Payments & OnePipe API Integration
 
 ![Java](https://img.shields.io/badge/Java-17-orange?style=flat-square&logo=java)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.1.6-brightgreen?style=flat-square&logo=springboot)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-blue?style=flat-square&logo=postgresql)
 ![Docker](https://img.shields.io/badge/Docker-Containerized-blue?style=flat-square&logo=docker)
-![OnePipe](https://img.shields.io/badge/OnePipe-PWA%20Integration-purple?style=flat-square)
 
-> A deployed fintech integration demonstration with production-oriented security and payment-processing patterns, multi-tenant payment infrastructure for boarding schools,
-> built on top of **OnePipe's PayWithAccount (PWA) API Services**.
+**An individually built, full-stack EdTech/fintech integration project** for school-fee management across branches, developed during the **OnePipe Emerging Talent Accelerator**. I built the Java/Spring Boot backend, React frontend, integrated OnePipe's PayWithAccount (PWA) APIs, and deployed a working internship demonstration.
 
----
+> **This project began as a real OnePipe API integration—not a mock-only application.** During the internship, I used the then-active OnePipe environment and temporary integration credentials to make real OnePipe API calls and carry out real transfer transactions during integration testing, receive payment callbacks/notifications, and demonstrate payment-related notification and reminder workflows. Those were integration/demo activities, **not a claim that this system processed production school fees for real schools**.
 
-## 📌 Table of Contents
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Tech Stack](#tech-stack)
-- [Key Features](#key-features)
-- [API Endpoints](#api-endpoints)
-- [Security](#security)
-- [Getting Started](#getting-started)
-- [Environment Variables](#environment-variables)
-- [Deployment](#deployment)
-- [Frontend Repository](#frontend-repository)
+> **Why it runs in mock mode today:** After the internship, the OnePipe environment and credentials used for the demonstration were cancelled/revoked. I therefore replaced the external payment dependency with a deterministic, offline adapter so the project remains safe, testable and reviewable without access to OnePipe. The historical real-provider adapter remains in the codebase for reference, but **is not a currently verified or supported live integration**.
 
----
+### Then versus now
 
-## 🎯 Overview
+| | Original internship demonstration | Current portfolio version |
+|---|---|---|
+| Payment integration | Actual OnePipe API calls, real transfer testing and webhook callbacks | Offline `MockOnepipeClient`; no bank/provider calls |
+| Notifications and reminders | Payment-related notification/reminder workflows exercised in the original demonstration | Not presented as a working delivery service in the current mock |
+| Accounts and funds | Temporary provider environment and credentials used for testing | Synthetic account identifiers; **no real accounts or money movement** |
+| Payment records | Original callback-driven status handling | Persistent simulated collection ledger, idempotency and deterministic payment lifecycle |
+| Availability | Originally deployed as an internship working demonstration | Local reproduction supported; hosted availability depends on a new deployment and database |
 
-Greenfield automates school fee collection for multi-campus boarding schools by
-integrating directly with **OnePipe's financial infrastructure**.
+The current API is deliberately **not production-ready**. Its public OnePipe webhook fails closed (HTTP 503) because the original verification contract is unavailable; no live-bank collection or transfer should be attempted. The historical integration and the present offline simulation are distinct stages of the same project.
 
-Each school branch is onboarded as a **sub-merchant** on OnePipe, and parents
-are automatically assigned **Virtual Bank Accounts** or **Mandate-based** payment
-plans immediately upon student registration.
+### What I built and improved
 
-The system eliminates manual reconciliation by:
-- Generating **Virtual Accounts** for every payment request.
-- Processing payments via **Webhooks** in real-time.
-- Running **background jobs** to expire stale invoices automatically.
+- **Full-stack application:** parent registration, student onboarding, branch-specific administration, JWT-secured roles and React dashboards.
+- **Original payments integration:** OnePipe provider requests, virtual-account/mandate workflows, transfer testing, payment callbacks and notification/reminder demonstrations.
+- **Portfolio hardening:** tenant isolation, server-authoritative fees, exact `BigDecimal` NGN calculations, installment and subscription schedules, verified *simulated* collection records, durable idempotency, concurrency-safe cancellation and read-only reconciliation.
+- **Reproducibility:** safe demo seeding, local H2 profiles, PostgreSQL/Flyway migrations, automated integration tests and explicit deployment configuration.
 
----
+**Repository scope:** this repository contains the Spring Boot backend. See the [separate React frontend](https://github.com/SirOlash/Greenfield-Boarding-School-Frontend) for the UI.
 
-## 🏗️ Architecture
+## Overview
 
-```
-Client (React Frontend)
-        │
-        │ HTTPS + JWT
-        ▼
+The prototype models branches, parent/student registration, invoices, payment
+plans and dashboards. It retains `SINGLE_PAYMENT`, `INSTALLMENT` and `SUBSCRIPTION`
+plan types. Amounts use two-decimal NGN, server-controlled class fees and exact
+installment schedules. See [payment rules and accounting limits](docs/payments.md).
+Creating an invoice creates a planned obligation; it does not confirm payment.
+
+Mock merchant/invoice requests return clearly marked demonstration identifiers.
+Repeated references reuse process-local state, new invoices start pending, and
+unknown queries return `NotFound`. Restarting clears mock adapter state even if
+application records persist in PostgreSQL. No payment QR code is generated;
+nullable QR fields remain in the response contract.
+
+The expiry scheduler records account expiry separately from financial status.
+A single-payment window closes at its valid deadline; recurring plans survive
+account expiry. Explicit mock subscription cancellation is database-authoritative.
+Due dates use an injectable clock in Africa/Lagos and a persisted billing anchor;
+new simulated subscription cycles must be due and sequential. No automatic
+charges run. See [lifecycle rules and reconciliation](docs/payment-lifecycle.md).
+
+Authorized queries report committed ledger balances and separate mock metadata
+diagnostics without changing accounting. Missing adapter state after restart is
+reported as unavailable. Real webhooks still return 503 because verification is
+unavailable; they cannot confirm money or change financial state. See
+[persistent collection accounting and dev simulation](docs/payment-events.md)
+and [mock provider limitations](docs/mock-onepipe.md).
+Use synthetic records for this demo.
+
+## Architecture
+
+```text
+React frontend
+      |
 Spring Boot REST API
-        │
-        ├── Auth Service (JWT + RBAC)
-        ├── Payment Service (OnePipe Integration)
-        ├── Student Service (Registration Flow)
-        └── Branch Service (Merchant Onboarding)
-                │
-                │ HTTPS
-                ▼
-        OnePipe PWA API
-        (Virtual Accounts / Mandates / Webhooks)
-                │
-                │ Webhook Callback
-                ▼
-        PostgreSQL Database
-        (Users / Branches / Students / Payments)
+      |-- Branch / Student / Payment services
+      |       `-- OnepipeClient
+      |             |-- MockOnepipeClient (default, offline, process-local state)
+      |             `-- RealOnePipeClient (explicit opt-in, historical API adapter)
+      `-- JPA repositories
+            |-- H2 (explicit dev / test profiles; in memory)
+            `-- PostgreSQL (explicit hosted profile; Flyway schema, Hibernate validation)
 ```
 
----
+Mock mode makes no OnePipe calls. Only explicit real mode under `dev` creates the
+**historical, currently unverified** real adapter and legacy diagnostic controller. Student and payment services enforce
+database-backed parent ownership and branch scope. The public webhook is a
+rejection-only route; it cannot enter the guarded simulated collection processor.
 
-## 🛠️ Tech Stack
+## Tech stack
 
-| Layer                | Technology                                |
-|:---------------------|:------------------------------------------|
-| **Language**         | Java 17                                   |
-| **Framework**        | Spring Boot 3.1.6                         |
-| **Security**         | Spring Security + JWT + TripleDES         |
-| **Database**         | PostgreSQL (Production), H2 (Development) |
-| **ORM**              | Hibernate / Spring Data JPA               |
-| **Payment API**      | OnePipe PayWithAccount (PWA)              |
-| **Containerization** | Docker                                    |
-| **Deployment**       | Render (Backend) + Vercel (Frontend)      |
-| **Build Tool**       | Maven                                     |
+| Layer | Technology |
+|:------|:-----------|
+| Language | Java 17 |
+| Framework | Spring Boot 3.1.6 |
+| Authentication | Spring Security, JWT and BCrypt |
+| Database | Local H2; optional PostgreSQL |
+| ORM | Hibernate / Spring Data JPA |
+| PostgreSQL schema | Flyway 9.16.3; versioned SQL migrations |
+| Payment adapters | Default offline mock; historical OnePipe PWA adapter |
+| Historical provider authorization | TripleDES code in the real adapter |
+| Build / packaging | Maven and Docker |
 
----
+## Security and limitations
 
-## ✨ Key Features
+- JWT signing requires a privately supplied key; no shared signing key is bundled.
+- CORS uses exact allowed origins. Dev and test allow only
+  `http://localhost:5173` and `http://127.0.0.1:5173`; hosted requires the explicit
+  `CORS_ALLOWED_ORIGINS` allowlist and rejects missing or invalid configuration.
+  Browser requests use JWT Authorization headers; credentialed CORS is disabled.
+- Demo seeding is disabled by default and restricted to `dev`. Explicit opt-in
+  requires private credentials. Initialization is transactional, preserves
+  existing passwords and roles, and rejects conflicting identities or ownership.
+  Hosted startup never runs the seeder, even if its opt-in flag is enabled.
+- Branch creation, platform statistics and historical diagnostics require
+  `SUPER_ADMIN`. Branch administrators are restricted to their own branch;
+  parents are restricted to their own Parent entity and children. Service-layer
+  checks run before provider calls, writes or reconciliation. Administrators
+  cannot change student payment plans or replace parents' banking details.
+  Plan changes require the authenticated parent who owns the student.
+- Public signup creates a new parent only after identity-conflict checks. Reusing
+  an existing parent requires that parent's authenticated JWT; matching an email
+  or phone alone cannot attach a child. Existing credentials and banking details
+  are preserved. Public branch discovery hides private biller/contact fields.
+- The public webhook fails closed with 503 and does not parse or log payloads or
+  signatures. Real signature verification requires an authoritative provider
+  contract and is not implemented.
+- Confirmed simulated collections have database-backed event/slot uniqueness,
+  atomic accounting and state transitions. Mock invoice-reference reuse remains
+  process-local and is separate from persistent collection idempotency.
+- Payment simulation is disabled by default and requires exactly `dev`, mock mode,
+  explicit opt-in and an authenticated database `SUPER_ADMIN`. It is unavailable
+  in test, hosted and real-provider modes. It does not provide real reconciliation.
 
-### 💳 Payment Infrastructure
-- **Virtual Account Generation:** Instantly creates unique bank accounts per
-  payment request via OnePipe.
-- **Three Payment Models:**
-    - `SINGLE_PAYMENT` – Ad-hoc invoice with a time-limited Virtual Account.
-    - `INSTALLMENT` – 20% down payment + recurring cycles (Weekly/Monthly).
-    - `SUBSCRIPTION` – Auto-debit recurring payments for the school term.
-- **QR Code Support:** Returns a scannable QR Code from OnePipe for instant payment.
+This internship prototype is not a production payment system. The authorization
+checks do not establish production payment integrity. Real webhook verification
+and trusted bank reconciliation remain unavailable. Offline lifecycle handling
+does not verify real money movement. Public contact verification, rate limiting
+and token revocation remain separate work. See the
+[authorization policy and frontend implications](docs/authorization.md).
 
-### 🔐 Security
-- **JWT Authentication:** Stateless, role-based access control.
-- **TripleDES Encryption:** Banking payload encryption for mandate creation.
-- **HMAC Webhook Verification:** Cryptographic signature validation on all
-  incoming OnePipe callbacks.
-- **Idempotency:** Duplicate webhook protection using `transactionRef` as
-  the idempotency key.
+## API endpoints
 
-### 🏢 Multi-Tenancy
-- **Branch-as-Merchant Model:** Each school campus is onboarded as a separate
-  OnePipe sub-merchant with its own `billerCode` and settlement account.
-- **Role-Based Dashboards:** `SUPER_ADMIN`, `BRANCH_ADMIN`, and `PARENT` roles
-  each see different data.
+Resource-scoped access below means the owning parent, the administrator of the
+resource's branch, or a super administrator. Scope comes from the authenticated
+database relationships, not request IDs, emails or frontend roles.
 
-### ⚙️ Reliability
-- **Webhook Processing:** Real-time payment status updates via OnePipe callbacks.
-- **Background Jobs (`@Scheduled`):** Automatically expires stale invoices by
-  comparing `virtualAccountExpiryDate` with the current time.
-- **Query API:** Fallback mechanism to manually verify payment status if a
-  webhook is missed.
+### Authentication and branches
 
----
+| Method | Endpoint | Current access | Description |
+|:-------|:---------|:---------------|:------------|
+| `POST` | `/api/auth/login` | Public | Obtain a JWT for an existing account |
+| `POST` | `/api/branches` | Authenticated `SUPER_ADMIN` | Create a branch through the selected adapter |
+| `GET` | `/api/branches` | Public discovery; private fields scoped | List campus identifiers, names and addresses |
 
-## 📡 API Endpoints
+### Students
 
-### Authentication
-| Method | Endpoint          | Access | Description         |
-|:-------|:------------------|:-------|:--------------------|
-| `POST` | `/api/auth/login` | Public | Login for all roles |
-
-### Branch Management
-| Method | Endpoint        | Access      | Description                  |
-|:-------|:----------------|:------------|:-----------------------------|
-| `POST` | `/api/branches` | SUPER_ADMIN | Create a new branch/merchant |
-| `GET`  | `/api/branches` | Public      | Get all branches             |
-
-### Student Management
-| Method | Endpoint                            | Access       | Description                          |
-|:-------|:------------------------------------|:-------------|:-------------------------------------|
-| `POST` | `/api/students/register`            | Public       | Register a student + trigger payment |
-| `GET`  | `/api/students?branchId={id}`       | BRANCH_ADMIN | Get students by branch               |
-| `GET`  | `/api/students?parentEmail={email}` | PARENT       | Get children by parent               |
+| Method | Endpoint | Current access | Description |
+|:-------|:---------|:---------------|:------------|
+| `POST` | `/api/students/register` | New parent signup; existing parent must authenticate as owner | Register a student and initiate an invoice |
+| `GET` | `/api/students?branchId={id}` | Own-branch admin or super admin | List students in an authorized branch |
+| `GET` | `/api/students?parentEmail={email}` | Own parent, branch-scoped admin, or super admin | List authorized children only |
 
 ### Payments
-| Method | Endpoint                           | Access       | Description                       |
-|:-------|:-----------------------------------|:-------------|:----------------------------------|
-| `POST` | `/api/payments/new`                | BRANCH_ADMIN | Trigger ad-hoc payment            |
-| `GET`  | `/api/payments?branchId={id}`      | BRANCH_ADMIN | Get payments by branch            |
-| `GET`  | `/api/payments?studentId={id}`     | PARENT       | Get payments by student           |
-| `POST` | `/api/payments/{id}/cancel`        | ADMIN/PARENT | Cancel a subscription             |
-| `POST` | `/api/payments/{id}/query`         | ADMIN        | Query payment status from OnePipe |
-| `PUT`  | `/api/payments/students/{id}/plan` | PARENT       | Switch payment plan               |
 
-### Webhooks
-| Method | Endpoint                | Access | Description                       |
-|:-------|:------------------------|:-------|:----------------------------------|
-| `POST` | `/api/webhooks/onepipe` | Public | OnePipe transaction notifications |
+| Method | Endpoint | Current access | Description |
+|:-------|:---------|:---------------|:------------|
+| `POST` | `/api/payments/new` | Resource-scoped access | Initiate an ad-hoc invoice |
+| `GET` | `/api/payments?branchId={id}` | Own-branch admin or super admin | List an authorized branch's payments |
+| `GET` | `/api/payments?studentId={id}` | Resource-scoped access | List an authorized student's payments |
+| `POST` | `/api/payments/{id}/cancel` | Resource-scoped access | Request subscription cancellation |
+| `POST` | `/api/payments/{id}/query` | Resource-scoped access | Read-only adapter query; no collection confirmation |
+| `PUT` | `/api/payments/students/{studentId}/switch-plan` | Owning parent only; administrators receive 403 | Update an owned child's plan |
 
-### Dashboard
-| Method | Endpoint                 | Access      | Description              |
-|:-------|:-------------------------|:------------|:-------------------------|
-| `GET`  | `/api/super-admin/stats` | SUPER_ADMIN | Platform-wide statistics |
+For cancellation and query, `{id}` is the adapter payment identifier stored as
+`onePipePaymentId`, not the numeric database row ID. Cross-tenant requests fail
+before provider calls or writes. Missing/invalid authentication returns 401;
+insufficient access returns 403, missing resources 404, and identity conflicts 409.
 
----
+### Webhooks, statistics and diagnostics
 
-## 🔒 Security Design
+| Method | Endpoint | Current access | Description |
+|:-------|:---------|:---------------|:------------|
+| `POST` | `/api/webhooks/onepipe` | Public rejection only | Always 503; unverified events cannot mutate financial state |
+| `POST` | `/api/dev/payment-simulations` | Explicitly enabled dev/mock only; SUPER_ADMIN | Confirm a server-priced simulated collection slot |
+| `GET` | `/api/super-admin/stats` | Authenticated `SUPER_ADMIN` | Platform statistics |
+| `GET` | `/api/test/encrypt` | `SUPER_ADMIN`; real mode only | Legacy encryption diagnostic |
+| `GET` | `/api/test/onepipe-connection?transactionRef={ref}` | `SUPER_ADMIN`; real mode only | Read-only query diagnostic; creates no invoice |
 
-```
-Every Request
-    │
-    ├── 1. JWT Filter        → Validates Token & Loads User
-    ├── 2. RBAC              → Checks Role per Endpoint
-    ├── 3. TripleDES         → Encrypts Bank Details
-    ├── 4. HMAC Verification → Validates Webhook Signatures
-    └── 5. Idempotency Keys  → Prevents Duplicate Processing
-```
+Existing parents must sign in before using the registration wizard again. The
+frontend already attaches bearer tokens, but should guide identity-conflict
+responses to sign-in and use the authenticated parent's existing identity. The
+registration flow does not reset passwords or replace banking details. See the
+[frontend compatibility notes](docs/authorization.md#frontend-compatibility).
 
----
-
-## 🚀 Getting Started
+## Getting started
 
 ### Prerequisites
+
 - Java 17+
 - Maven 3.9+
-- PostgreSQL (or Docker)
-- OnePipe API Credentials
+- A private, locally generated JWT signing key (Base64, at least 32 random bytes)
+- H2 is bundled for `dev` and `test`; `hosted` requires PostgreSQL
 
-### 1. Clone the Repository
+No OnePipe credentials are needed for the local mock. There is no active profile
+default: missing, unsupported or mixed profiles fail startup. See
+[configuration and profile details](docs/configuration.md).
+
+### 1. Clone the repository
+
 ```bash
 git clone https://github.com/SirOlash/OnepipePWAIntegrationProject.git
 cd OnepipePWAIntegrationProject
 ```
 
-### 2. Set Environment Variables
-Create a .env file or set the following in your system environment.
-(See Environment Variables section below).
+### 2. Set environment variables
 
-### 3. Run Locally (H2 in-memory DB)
-``` bash
-mvn spring-boot:run
+Generate a private Base64 signing key from 32 random bytes. These commands assign
+it to the current shell without printing it. Keep the same private key between
+runs if existing JWTs should remain valid.
+
+PowerShell:
+
+```powershell
+$jwtBytes = New-Object byte[] 32
+$jwtGenerator = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+try {
+    $jwtGenerator.GetBytes($jwtBytes)
+    $env:JWT_SECRET = [Convert]::ToBase64String($jwtBytes)
+} finally {
+    $jwtGenerator.Dispose()
+}
 ```
+
+Bash with OpenSSL:
+
+```bash
+export JWT_SECRET="$(openssl rand -base64 32)"
+```
+
+Spring Boot does not automatically load `.env` or
+[application-example.properties](application-example.properties). The example is
+a reference; supply settings privately through the shell or IDE. Demo account
+seeding is disabled by default.
+
+### 3. Run locally with H2
+
+```bash
+mvn spring-boot:run "-Dspring-boot.run.profiles=dev"
+```
+
+The `dev` profile uses H2 in memory, creates its schema at startup, binds to
+`127.0.0.1` and defaults to mock payments. Data is lost when the application stops.
+No manual driver or dialect override is needed.
+
+In IntelliJ, set the Spring Boot run configuration's **Active profiles** to `dev`
+and add `JWT_SECRET` privately under **Environment variables**. Do not share a run
+configuration containing secrets. See [IDE setup](docs/configuration.md#intellij).
+
+To create local demonstration accounts, explicitly set `DEMO_SEED_ENABLED=true`
+under `dev` and privately supply `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD` and
+`DEMO_BRANCH_ADMIN_PASSWORD`, alongside `JWT_SECRET`. No passwords are published
+because shared privileged credentials would make a public deployment unsafe.
+The synthetic branch-admin identity is `branch-admin@example.invalid`; the
+super-admin email must differ. In IntelliJ, set these values privately in the run
+configuration's environment; in Maven, inherit them from the current shell.
+
+Repeat runs reuse the same accounts and reserved branch identifiers without
+resetting passwords or roles. An orphaned branch-admin account can be repaired
+only when its existing password proves ownership and it owns no other branch.
+Conflicts fail without overwriting existing data; a failure rolls back the whole
+initialization attempt. See [demo seeding](docs/configuration.md#demo-seeding)
+for the identifiers, other partial-state rules and concurrency limitations.
+H2 data still disappears when the dev application stops. Hosted recruiter
+account provisioning remains unimplemented.
+
 ### 4. Run with Docker
+
 ```bash
 docker build -t greenfield-backend .
-docker run -p 8080:8080 \
-  -e JWT_SECRET=your_secret \
-  -e ONEPIPE_API_KEY=your_key \
-  -e ONEPIPE_CLIENT_SECRET=your_secret \
-  greenfield-backend
+docker run --rm -p 127.0.0.1:8080:8080 \
+  -e JWT_SECRET \
+  -e SPRING_PROFILES_ACTIVE=dev \
+  greenfield-backend \
+  --server.address=0.0.0.0
 ```
 
-### 🔑 Environment Variables
-| Variable                | Description                            | Required   |
-|:------------------------|:---------------------------------------|:-----------|
-| `DB_URL`                | PostgreSQL JDBC URL                    | Production |
-| `DB_USERNAME`           | Database username                      | Production |
-| `DB_PASSWORD`           | Database password                      | Production |
-| `JWT_SECRET`            | Base64 encoded JWT signing key         | Yes        |
-| `ONEPIPE_API_KEY`       | OnePipe Bearer Token                   | Yes        |
-| `ONEPIPE_CLIENT_SECRET` | OnePipe Client Secret (for encryption) | Yes        |
-| `SUPER_ADMIN_EMAIL`     | Default Super Admin email              | Optional   |
+This Bash example passes the private key from the current shell. The address
+override lets container traffic reach the application; the published port still
+binds only to the host's loopback interface. Its H2 data remains temporary.
 
-### 🐳 Deployment
-This project is containerized with Docker and deployed on Render.
+### Local tests
 
-Live Backend URL:
-https://greenfield-backend-lkse.onrender.com
+```bash
+mvn test
+```
 
-### 🖥️ Frontend Repository
-The React (TypeScript + Vite) frontend is maintained in a separate repository.
-Frontend Repo: [Greenfield Frontend[](https://github.com/SirOlash/Greenfield-Boarding-School-Frontend)]
-Live Demo: https://greenfieldboardingschool.vercel.app
+Application startup tests select `dev` or the isolated `test` profile and generate
+transient JWT keys rather than committing test credentials. The H2 suite needs no
+PostgreSQL or OnePipe environment. Provider tests use synthetic settings and mock
+HTTP boundaries. Actual PostgreSQL migration tests are opt-in through
+`GREENFIELD_MIGRATION_TEST_DB_URL`, `GREENFIELD_MIGRATION_TEST_DB_USERNAME` and
+`GREENFIELD_MIGRATION_TEST_DB_PASSWORD`; an ordinary H2 run does not prove
+PostgreSQL compatibility. See [database migration verification](docs/database-migrations.md).
+Passing tests do not establish the historical OnePipe contract or repair the
+limitations above.
+
+Authorization tests use real signed JWTs and active Spring Security filters with
+two parents and two branches. They check both permitted operations and rejected
+cross-tenant attempts, including unchanged database and mock-provider state.
+See [verified authorization coverage](docs/authorization.md#verification).
+
+## Environment variables
+
+| Variable | Description | Required for |
+|:---------|:------------|:-------------|
+| `SPRING_PROFILES_ACTIVE` | Exactly one of `dev`, `test`, `hosted`; CLI/IDE selection also works | Startup |
+| `JWT_SECRET` | Private Base64 JWT signing key with at least 32 random bytes | Startup; tests generate their own |
+| `PORT` | HTTP port; defaults to `8080` | Optional |
+| `ONEPIPE_MODE` | `mock` by default; explicit `real` is allowed only in `dev` | Optional |
+| `ONEPIPE_BASE_URL` | Provider API base URL | Explicit `dev` real mode |
+| `ONEPIPE_API_KEY` | Provider bearer token | Explicit `dev` real mode |
+| `ONEPIPE_CLIENT_SECRET` | Provider authorization secret | Explicit `dev` real mode |
+| `ONEPIPE_WEBHOOK_URL` | Full provider callback URL | Explicit `dev` real mode |
+| `DB_URL` | PostgreSQL JDBC URL with the database's required connection options; no fallback | `hosted` |
+| `DB_USERNAME` | Privately supplied database username; no fallback | `hosted` |
+| `DB_PASSWORD` | Privately supplied database password; no fallback | `hosted` |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated exact HTTP/HTTPS origins; no default, wildcards or URL paths. Intended frontend: `https://greenfieldboardingschool.vercel.app` | `hosted` |
+| `DEMO_SEED_ENABLED` | Explicit dev-only opt-in; defaults to `false`; hosted ignores it | Optional |
+| `SUPER_ADMIN_EMAIL` | Stable, supplied super-admin identity | Enabled dev seeding |
+| `SUPER_ADMIN_PASSWORD` | Supplied private super-admin password; never rotates an existing password | Enabled dev seeding |
+| `DEMO_BRANCH_ADMIN_PASSWORD` | Private branch password; must match an existing orphaned account to repair it | Enabled dev seeding |
+
+Do not reuse historical internship credentials. The `hosted` profile fixes the
+PostgreSQL driver and runs Flyway before Hibernate validates the schema;
+`DB_DRIVER_CLASS` is not used. V1 creates the complete schema on an empty
+PostgreSQL database. Hibernate never creates or updates hosted tables, and a
+migration failure stops startup. Automatic baselining is disabled: an existing
+nonempty database needs a separately verified adoption plan. No legacy payment
+evidence is backfilled. See [hosted prerequisites](docs/configuration.md#hosted-postgresql)
+and [local PostgreSQL setup and migration checks](docs/database-migrations.md).
+
+## Deployment status
+
+A Dockerfile is provided. The original working internship demonstration used
+Render for the backend and Vercel for the frontend. Those original deployments
+and payment credentials should **not** be treated as the current portfolio demo.
+The previous PostgreSQL database is no longer available; a fresh hosted mock
+deployment needs its own database and configuration. No working live-money
+integration or currently verified hosted URL is claimed here.
+
+The `hosted` profile reads a host-provided `PORT`, binds to `0.0.0.0` and uses
+environment-backed PostgreSQL settings. It also requires `CORS_ALLOWED_ORIGINS`,
+for example `https://greenfieldboardingschool.vercel.app`; it does not allow other
+Vercel subdomains automatically. See [CORS configuration](docs/configuration.md#cors).
+This prepares application configuration
+for a future hosted mock demo, including Render. No database was provisioned,
+deployment changed or hosted connection verified as part of this configuration
+work.
+
+## Frontend repository
+
+The React (TypeScript + Vite) frontend source and its matching project history
+are maintained separately:
+[Greenfield Frontend](https://github.com/SirOlash/Greenfield-Boarding-School-Frontend).
+For integration testing, use the frontend's `fix/backend-api-alignment` branch
+with this backend's `fix/secure-demo-config` branch until they are merged.
 
 ### 👨‍💻 Author
 Olasupo Emmanuel
 - LinkedIn: https://linkedin.com/in/sirolashemmanuel
 - GitHub: https://github.com/SirOlash
 - Email: Olasupoemmanuel30@gmail.com
-
-### 📄 License
-This project is open source and available under the MIT License.
 

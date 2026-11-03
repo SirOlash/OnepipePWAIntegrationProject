@@ -34,5 +34,6 @@ public class RegisterStudentResponse {
         private String paymentType;
         private String expiryDate;
         private String qrCodeImage;
+        private PaymentTerms terms;
     }
 }

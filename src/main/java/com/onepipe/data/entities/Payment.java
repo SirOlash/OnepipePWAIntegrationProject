@@ -9,6 +9,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.Instant;
 
 @Entity
 @Table(name = "payments")
@@ -18,6 +19,19 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 public class Payment extends BaseEntity {
+    /** Null on historical rows: no claim that legacy counters are collection evidence. */
+    private Integer accountingVersion;
+
+    /** Africa/Lagos billing snapshot for newly created arrangements; null on historical rows. */
+    private LocalDateTime billingAnchor;
+
+    /** Account/instruction expiry boundary recorded on observation; independent of plan state. */
+    private Instant virtualAccountExpiredAt;
+
+    @Version
+    @Column(nullable = false)
+    private Long rowVersion;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "student_id")
     private Student student;

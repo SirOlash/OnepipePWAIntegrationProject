@@ -7,6 +7,12 @@ import com.onepipe.data.entities.Student;
 import com.onepipe.data.enums.PaymentStatus;
 import com.onepipe.data.enums.PaymentType;
 import com.onepipe.data.enums.PaymentCategory;
+import com.onepipe.data.enums.InstallmentFrequency;
+import com.onepipe.config.SchoolFeeSchedule;
+import com.onepipe.dtos.request.PaymentRequest;
+import com.onepipe.dtos.response.PaymentTerms;
+import com.onepipe.validation.PaymentInputValidation;
+import com.onepipe.exceptions.customExceptions.InvalidPaymentException;
 import com.onepipe.data.repositories.BranchRepository;
 import com.onepipe.data.repositories.ParentRepository;
 import com.onepipe.data.repositories.PaymentRepository;
@@ -19,15 +25,15 @@ import com.onepipe.integration.OnepipeClient;
 import com.onepipe.integration.dto.OnePipeInvoiceRequest;
 import com.onepipe.integration.dto.OnePipeQueryResponse;
 import com.onepipe.integration.dto.OnePipeResponse;
-import com.onepipe.utils.EncryptionUtil;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
+import com.onepipe.security.ResourceAuthorization;
+import com.onepipe.exceptions.customExceptions.ResourceConflictException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -42,21 +48,22 @@ public class PaymentService {
     private final StudentRepository studentRepository;
     private final ParentRepository parentRepository;
     private final BranchRepository branchRepository;
-
-    @Value("${onepipe.client-secret}")
-    private String clientSecret;
-
-    private static final List<PaymentStatus> ACTIVE_PAYMENT_STATUSES = List.of(
-            PaymentStatus.PENDING,
-            PaymentStatus.ACTIVE
-    );
+    private final ResourceAuthorization authorization;
+    private final PaymentCalculator calculator;
+    private final SchoolFeeSchedule schoolFees;
+    private final PaymentInputValidation inputValidation;
+    private final PaymentAccounting accounting;
+    private final PaymentSchedule schedule;
+    private final PaymentLifecycleService lifecycle;
+    private final PaymentReconciliationService reconciliation;
 
     // --- 1. Called when a Student Registers ---
     @Transactional
-    public Payment createInitialSchoolFeesPayment(Student student) {
+    Payment createInitialSchoolFeesPayment(Student student) {
+        // Internal registration path: StudentService has verified a new or owned parent.
         validateNoExistingSchoolFeesPayment(student);
 
-        BigDecimal totalFee = student.getClassGrade().getDefaultFee();
+        BigDecimal totalFee = schoolFees.feeFor(student.getClassGrade());
 
         Payment.PaymentBuilder builder = Payment.builder()
                 .student(student)
@@ -67,16 +74,19 @@ public class PaymentService {
                 .status(PaymentStatus.PENDING)
                 .totalAmount(totalFee)
                 .completedPayments(0)
+                .accountingVersion(1)
+                .billingAnchor(schedule.anchorNow())
                 .description("School Fees for " + student.getClassGrade().name());
 
         String requestRef = UUID.randomUUID().toString();
-        String transactionRef = "SCH-" + System.currentTimeMillis();
+        String transactionRef = "SCH-" + UUID.randomUUID();
 
         builder.requestRef(requestRef);
         builder.transactionRef(transactionRef);
 
         // ✅ HANDLE ALL PAYMENT TYPES
-        configurePaymentDetails(builder, student.getPreferredPaymentType(), totalFee, student);
+        configurePaymentDetails(builder, student.getPreferredPaymentType(), totalFee,
+                student.getInstallmentFrequency(), student.getNumberOfInstallments());
 
         Payment payment = builder.build();
         paymentRepository.save(payment);
@@ -91,22 +101,46 @@ public class PaymentService {
                                                      BigDecimal amount,
                                                      PaymentType paymentType,
                                                      String description) {
+        PaymentRequest request = new PaymentRequest();
+        request.setStudentId(studentId);
+        request.setCategory(category);
+        request.setAmount(amount);
+        request.setPaymentType(paymentType);
+        request.setDescription(description);
+        return triggerNewPayment(request);
+    }
 
-        Student student = studentRepository.findById(studentId)
-                .orElseThrow(() -> new RuntimeException("Student not found with ID: " + studentId));
+    @Transactional
+    public RegisterStudentResponse triggerNewPayment(PaymentRequest request) {
+        Student student = authorization.student(request.getStudentId());
+        inputValidation.validate(request);
+        PaymentCategory category = request.getCategory();
+        String description = request.getDescription();
+        PaymentType effectivePaymentType = request.getPaymentType();
+        InstallmentFrequency frequency = request.getFrequency() != null
+                ? request.getFrequency() : student.getInstallmentFrequency();
+        Integer count = request.getNumberOfInstallments() != null
+                ? request.getNumberOfInstallments() : student.getNumberOfInstallments();
 
+        BigDecimal amount;
         if (category == PaymentCategory.SCHOOL_FEES) {
             validateNoExistingSchoolFeesPayment(student);
+            amount = schoolFees.validateSubmittedAmount(student.getClassGrade(), request.getAmount(), calculator);
+            effectivePaymentType = student.getPreferredPaymentType();
+            if (request.getPaymentType() != effectivePaymentType
+                    || (request.getFrequency() != null && request.getFrequency() != student.getInstallmentFrequency())
+                    || (request.getNumberOfInstallments() != null
+                        && !request.getNumberOfInstallments().equals(student.getNumberOfInstallments()))) {
+                throw new InvalidPaymentException("School fee payment terms must match the student's saved plan");
+            }
+            frequency = student.getInstallmentFrequency();
+            count = student.getNumberOfInstallments();
+        } else {
+            amount = calculator.money(request.getAmount());
         }
         if (description == null || description.isEmpty()) {
             description = category.name() + " payment for student " + student.getFirstName();
         }
-        PaymentType effectivePaymentType = paymentType;
-        if (PaymentCategory.SCHOOL_FEES.equals(category)) {
-            effectivePaymentType = student.getPreferredPaymentType();
-        }
-
-
         Payment.PaymentBuilder builder = Payment.builder()
                 .student(student)
                 .parent(student.getParent())
@@ -116,14 +150,16 @@ public class PaymentService {
                 .status(PaymentStatus.PENDING)
                 .totalAmount(amount)
                 .completedPayments(0)
+                .accountingVersion(1)
+                .billingAnchor(schedule.anchorNow())
                 .description(description);
 
         // Generate unique references
         builder.requestRef(UUID.randomUUID().toString());
-        builder.transactionRef(category.name() + "-" + System.currentTimeMillis());
+        builder.transactionRef(category.name() + "-" + UUID.randomUUID());
 
         // ✅ HANDLE ALL PAYMENT TYPES
-        configurePaymentDetails(builder,effectivePaymentType, amount, student);
+        configurePaymentDetails(builder, effectivePaymentType, amount, frequency, count);
 
         Payment payment = builder.build();
         payment = paymentRepository.save(payment);
@@ -137,6 +173,7 @@ public class PaymentService {
                 .parentName(student.getParent().getFirstName() + " " + student.getParent().getSurname())
                 .message("Invoice successfully created!!! Check email for details.")
                 .paymentDetails(RegisterStudentResponse.PaymentDetails.builder()
+                        .onePipePaymentId(completedPayment.getOnePipePaymentId())
                         .amount(completedPayment.getTotalAmount())
                         .downPayment(completedPayment.getDownPaymentAmount())
                         .bankName(completedPayment.getVirtualAccountBankName())
@@ -146,6 +183,7 @@ public class PaymentService {
                         .expiryDate(completedPayment.getVirtualAccountExpiryDate())
                         .customerAccountNumber(completedPayment.getCustomerAccountNumber())
                         .qrCodeImage(completedPayment.getVirtualAccountQrCodeUrl())
+                        .terms(paymentTerms(completedPayment))
                         .build())
                 .build();
     }
@@ -154,40 +192,27 @@ public class PaymentService {
     private void configurePaymentDetails(Payment.PaymentBuilder builder,
                                          PaymentType paymentType,
                                          BigDecimal amount,
-                                         Student student) {
+                                         InstallmentFrequency frequency, Integer installments) {
+        calculator.money(amount);
+        calculator.validatePlan(paymentType, frequency, installments);
         switch (paymentType) {
             case SINGLE_PAYMENT:
                 // No additional configuration needed
                 break;
 
             case INSTALLMENT:
-                BigDecimal down = amount.multiply(new BigDecimal("0.20"))
-                        .setScale(2, RoundingMode.HALF_UP);
-                Integer installments = student.getNumberOfInstallments();
-
-                if (installments == null || installments <= 0) {
-                    installments = 3; // default safeguard
-                }
-
-                BigDecimal remaining = amount.subtract(down);
-                BigDecimal perCycle = remaining.divide(new BigDecimal(installments), 2, RoundingMode.HALF_UP);
-
-                builder.downPaymentAmount(down);
-                builder.amountPerCycle(perCycle);
-                builder.installmentFrequency(student.getInstallmentFrequency());
+                PaymentCalculator.InstallmentPlan plan = calculator.installments(amount, installments);
+                builder.downPaymentAmount(plan.downPayment());
+                builder.amountPerCycle(plan.installments().get(0));
+                builder.installmentFrequency(frequency);
                 builder.numberOfPayments(installments);
                 break;
 
             case SUBSCRIPTION:
-                // For subscriptions, set the billing cycle
-                // Amount per cycle = total amount (this is the recurring amount)
-//                builder.downPaymentAmount(amount);
+                // Unlimited subscription: amount is per cycle, not a finite tuition balance.
                 builder.amountPerCycle(amount);
-                builder.installmentFrequency(student.getInstallmentFrequency() != null
-                        ? student.getInstallmentFrequency()
-                        : com.onepipe.data.enums.InstallmentFrequency.MONTHLY); // Default to monthly
-                // For subscriptions, numberOfPayments can be null (unlimited) or set a limit
-                builder.numberOfPayments(null); // Unlimited subscription
+                builder.installmentFrequency(frequency);
+                builder.numberOfPayments(null);
                 break;
 
             default:
@@ -197,25 +222,10 @@ public class PaymentService {
 
 
     // --- 2. Centralized Method to Call API ---
-    public Payment initiatePaymentRequest(Payment payment) {
-
-        boolean isDemoMode = true; // TOGGLE THIS FOR DEMO
+    private Payment initiatePaymentRequest(Payment payment) {
 
         OnePipeInvoiceRequest request = new OnePipeInvoiceRequest();
         request.setRequestRef(payment.getRequestRef());
-
-        OnePipeInvoiceRequest.Auth auth = new OnePipeInvoiceRequest.Auth();
-        if (payment.getPaymentType() == PaymentType.SINGLE_PAYMENT) {
-            auth.setType(null);
-            auth.setSecure(null);
-        } else {
-            auth.setType("bank.account");
-            auth.setSecure(EncryptionUtil.encryptTripleDES(
-                    payment.getParent().getBankAccountNumber() + ";" + payment.getParent().getBankCode(),
-                    clientSecret
-            ));
-        }
-        request.setAuth(auth);
 
         // --- Transaction ---
         OnePipeInvoiceRequest.Transaction tx = new OnePipeInvoiceRequest.Transaction();
@@ -223,10 +233,7 @@ public class PaymentService {
         tx.setTransactionDesc(payment.getDescription());
         tx.setTransactionRefParent(null);
 
-//        tx.setDetails(new HashMap<>());
-
-        BigDecimal amountInKobo = payment.getTotalAmount().multiply(new BigDecimal("100"));
-        tx.setAmount(amountInKobo.setScale(0, RoundingMode.HALF_UP));
+        tx.setAmount(calculator.toKobo(payment.getTotalAmount()));
 
 
         // --- Customer ---
@@ -250,37 +257,15 @@ public class PaymentService {
                 break;
             case INSTALLMENT:
                 meta.setType("instalment");
-                if (isDemoMode) {
-                    meta.setDownPayment(new BigDecimal("10000"));
-                    meta.setRepeatFrequency("daily");
-                    meta.setExpiresIn(60);
-                } else {
-                    meta.setDownPayment(payment.getDownPaymentAmount().multiply(new BigDecimal("100")));
-                    meta.setRepeatFrequency(payment.getInstallmentFrequency().name().toLowerCase());
-                }
+                meta.setDownPayment(calculator.toKobo(payment.getDownPaymentAmount()));
+                meta.setRepeatFrequency(payment.getInstallmentFrequency().name().toLowerCase(Locale.ROOT));
                 meta.setRepeatStartDate(calculateStartDate(payment));
                 meta.setNumberOfPayments(payment.getNumberOfPayments());
                 break;
             case SUBSCRIPTION:
                 meta.setType("subscription");
-                if (isDemoMode) {
-//                    BigDecimal downPayment = payment.getDownPaymentAmount() != null
-//                            ? payment.getDownPaymentAmount().multiply(new BigDecimal("100"))
-//                            : payment.getTotalAmount().multiply(new BigDecimal("100"));
-//                    meta.setDownPayment(downPayment);
-                    meta.setRepeatFrequency("daily");
-                    meta.setRepeatStartDate(formatDate(LocalDateTime.now().plusDays(1)));
-                    meta.setRepeatEndDate(formatDate(LocalDateTime.now().plusDays(3)));
-//                    meta.setExpiresIn(60);
-                } else {
-                    BigDecimal downPayment = payment.getDownPaymentAmount() != null
-                            ? payment.getDownPaymentAmount().multiply(new BigDecimal("100"))
-                            : payment.getTotalAmount().multiply(new BigDecimal("100"));
-                    meta.setDownPayment(downPayment);
-                    meta.setRepeatFrequency(payment.getInstallmentFrequency().name().toLowerCase());
-                    meta.setRepeatStartDate(formatDate(LocalDateTime.now().plusMonths(1)));
-                    meta.setRepeatEndDate(formatDate(LocalDateTime.now().plusMonths(3)));
-                }
+                meta.setRepeatFrequency(payment.getInstallmentFrequency().name().toLowerCase(Locale.ROOT));
+                meta.setRepeatStartDate(calculateStartDate(payment));
                 break;
         }
         tx.setMeta(meta);
@@ -288,7 +273,7 @@ public class PaymentService {
         request.setTransaction(tx);
 
 
-        OnePipeResponse response = onePipeClient.sendInvoice(request);
+        OnePipeResponse response = onePipeClient.sendInvoice(request, payment);
 
         payment.setVirtualAccountNumber(response.getVirtualAccountNumber());
         payment.setVirtualAccountName(response.getVirtualAccountName());
@@ -312,51 +297,49 @@ public class PaymentService {
     }
 
     private String calculateStartDate(Payment payment) {
-        LocalDateTime now = LocalDateTime.now();
-
-        switch (payment.getInstallmentFrequency()) {
-            case DAILY:
-                return formatDate(now.plusDays(1));
-            case WEEKLY:
-                return formatDate(now.plusWeeks(1));
-            case MONTHLY:
-                return formatDate(now.plusMonths(1));
-            default:
-                return formatDate(now.plusDays(1));
-        }
+        return formatDate(firstBillingDate(payment));
     }
 
-    @Transactional
+    private LocalDateTime firstBillingDate(Payment payment) {
+        return schedule.firstBillingDate(payment);
+    }
+
+    public PaymentTerms paymentTerms(Payment payment) {
+        List<BigDecimal> schedule = List.of();
+        if (payment.getPaymentType() == PaymentType.INSTALLMENT) {
+            try {
+                schedule = calculator.installments(payment.getTotalAmount(), payment.getDownPaymentAmount(),
+                        payment.getNumberOfPayments()).installments();
+            } catch (InvalidPaymentException ex) {
+                // Legacy malformed schedules are not reconstructed using invented defaults.
+                schedule = List.of();
+            }
+        }
+        boolean recurring = payment.getPaymentType() != PaymentType.SINGLE_PAYMENT;
+        LocalDateTime start = recurring && payment.getInstallmentFrequency() != null
+                && payment.getBillingAnchor() != null ? firstBillingDate(payment) : null;
+        PaymentAccounting.Progress progress = accounting.snapshot(payment);
+        BigDecimal remaining = progress.remainingAmount();
+        String basis = progress.balanceBasis();
+        return new PaymentTerms("NGN", payment.getAmountPerCycle(), schedule,
+                payment.getInstallmentFrequency(), start, null, remaining, basis, progress.confirmedAmount());
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void cancelSubscription(String onePipeId) {
-        Payment payment = paymentRepository.findByOnePipePaymentId(onePipeId)
-                .orElseThrow(() -> new RuntimeException("Payment not found with OnePipe ID: " + onePipeId));
-
-        if (payment.getPaymentType() != PaymentType.SUBSCRIPTION) {
-            throw new RuntimeException("Only Subscriptions can be cancelled");
-        }
-
-        if (payment.getStatus() == PaymentStatus.CANCELLED) {
-            throw new RuntimeException("Subscription is already cancelled");
-        }
-
-        boolean success = onePipeClient.cancelMandate(payment);
-
-        if (success) {
-            payment.setStatus(PaymentStatus.CANCELLED);
-            paymentRepository.save(payment);
-        } else {
-            throw new RuntimeException("OnePipe failed to process cancellation");
-        }
+        lifecycle.cancelByProviderId(onePipeId);
     }
 
+    @Transactional(readOnly = true)
     public List<BranchPaymentDto> getPaymentsByBranch(Long branchId) {
-        Branch branch = branchRepository.findById(branchId)
-                .orElseThrow(() -> new RuntimeException("Branch not found"));
+        Branch branch = authorization.branch(branchId);
+        List<Payment> records = paymentRepository.findByBranch(branch);
+        authorization.checkPayments(records);
 
         // Define date format for the UI
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
-        return paymentRepository.findByBranch(branch).stream()
+        return records.stream()
                 .map(payment -> BranchPaymentDto.builder()
                         .id(payment.getId())
                         .studentName(payment.getStudent() != null
@@ -367,6 +350,7 @@ public class PaymentService {
                         .remainingAmount(calculatePendingAmount(payment))
                         .numberOfPayments(payment.getNumberOfPayments())
                         .completedPayments(payment.getCompletedPayments())
+                        .terms(paymentTerms(payment))
                         .type(payment.getPaymentType())
                         .status(payment.getStatus())
                         .date(payment.getCreatedAt().format(formatter))
@@ -374,51 +358,33 @@ public class PaymentService {
                 .collect(Collectors.toList());
     }
 
-    public List<Payment> getPaymentsForStudent(Student student) {
-        return paymentRepository.findByStudent(student);
+    List<Payment> getPaymentsForStudent(Student student) {
+        Student trustedStudent = authorization.student(student.getId());
+        List<Payment> records = paymentRepository.findByStudent(trustedStudent);
+        authorization.checkPayments(records);
+        return records;
     }
 
-    public Payment getSchoolFeesPayment(Student student) {
-        return paymentRepository.findByStudent(student).stream()
+    Payment getSchoolFeesPayment(Student student) {
+        return getPaymentsForStudent(student).stream()
                 .filter(p -> p.getCategory() == PaymentCategory.SCHOOL_FEES)
                 .findFirst()
                 .orElse(null);
     }
 
     public BigDecimal calculatePendingAmount(Payment payment) {
-        if (payment.getStatus() == PaymentStatus.SUCCESSFUL) {
-            return BigDecimal.ZERO;
-        }
-
-        // Single Payment
-        if (payment.getPaymentType() == PaymentType.SINGLE_PAYMENT  ||
-                payment.getPaymentType() == PaymentType.SUBSCRIPTION) {
-            return payment.getTotalAmount();
-        }
-
-        if (payment.getStatus() == PaymentStatus.PENDING) {
-            return payment.getTotalAmount();
-        }
-
-        // Installment
-        // Formula: Total - (DownPayment + (PerCycle * CompletedCount))
-        BigDecimal down = payment.getDownPaymentAmount() != null ? payment.getDownPaymentAmount() : BigDecimal.ZERO;
-        BigDecimal perCycle = payment.getAmountPerCycle() != null ? payment.getAmountPerCycle() : BigDecimal.ZERO;
-        int completed = payment.getCompletedPayments() != null ? payment.getCompletedPayments() : 0;
-
-        BigDecimal paidSoFar = down.add(perCycle.multiply(new BigDecimal(completed)));
-
-        // Ensure we don't return negative numbers
-        return payment.getTotalAmount().subtract(paidSoFar).max(BigDecimal.ZERO);
+        return accounting.snapshot(payment).remainingAmount();
     }
 
+    @Transactional(readOnly = true)
     public List<ParentPaymentDto> getPaymentsForChild(Long studentId) {
-        Student student = studentRepository.findById(studentId)
-                .orElseThrow(() -> new RuntimeException("Student not found"));
+        Student student = authorization.student(studentId);
+        List<Payment> records = paymentRepository.findByStudent(student);
+        authorization.checkPayments(records);
 
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
-        return paymentRepository.findByStudent(student).stream()
+        return records.stream()
                 .map(p -> ParentPaymentDto.builder()
                         .onePipePaymentId(p.getOnePipePaymentId())
                         .description(p.getDescription())
@@ -431,6 +397,7 @@ public class PaymentService {
                         .remainingAmount(calculatePendingAmount(p))
                         .numberOfPayments(p.getNumberOfPayments())
                         .completedPayments(p.getCompletedPayments())
+                        .terms(paymentTerms(p))
                         // Banking Details
                         .virtualAccountNumber(p.getVirtualAccountNumber())
                         .virtualAccountBankName(p.getVirtualAccountBankName())
@@ -443,84 +410,12 @@ public class PaymentService {
 
     @Scheduled(fixedRate = 60000)
     public void expireOverduePayments() {
-        // 1. Fetch all PENDING payments
-        List<Payment> pendingPayments = paymentRepository.findByStatus(PaymentStatus.PENDING);
-
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-        LocalDateTime now = LocalDateTime.now();
-
-        for (Payment payment : pendingPayments) {
-            String expiryStr = payment.getVirtualAccountExpiryDate();
-
-            // Skip if no expiry date (e.g. manual payments)
-            if (expiryStr == null || expiryStr.isEmpty()) {
-                continue;
-            }
-
-            try {
-                // 2. Parse the OnePipe Date String
-                // Handle potential format differences (OnePipe sometimes sends different formats)
-                // We assume "yyyy-MM-dd HH:mm:ss" based on your logs
-                LocalDateTime expiryDate = LocalDateTime.parse(expiryStr, formatter);
-
-                // 3. Check if Expired
-                if (expiryDate.isBefore(now)) {
-                    System.out.println("⚠️ Expiring Payment ID: " + payment.getId() + " (Time elapsed)");
-
-                    payment.setStatus(PaymentStatus.CANCELLED);
-                    paymentRepository.save(payment);
-                }
-            } catch (Exception e) {
-                // Log error but don't stop the loop for other payments
-                System.err.println("Error parsing date for payment " + payment.getId() + ": " + expiryStr);
-            }
-        }
+        lifecycle.expireAll();
     }
 
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public OnePipeQueryResponse queryAndFixPaymentStatus(String onePipeId) {
-        Payment payment = paymentRepository.findByOnePipePaymentId(onePipeId)
-                .orElseThrow(() -> new RuntimeException("Payment not found with OnePipe ID: " + onePipeId));
-
-        String returnMessage;
-        // Optimization: If already successful, don't bother querying
-        if (payment.getStatus() == PaymentStatus.SUCCESSFUL || payment.getStatus() == PaymentStatus.ACTIVE) {
-            returnMessage = "Payment is already marked as successful/active.";
-        }
-
-        else {
-            // 3. It is PENDING/FAILED locally, so let's ask OnePipe
-            OnePipeResponse response = onePipeClient.queryTransaction(payment.getTransactionRef());
-
-            if ("successful".equalsIgnoreCase(response.getStatus())) {
-                // 4. OnePipe says it's money! Update our DB.
-
-                if (payment.getPaymentType() == PaymentType.SINGLE_PAYMENT) {
-                    payment.setStatus(PaymentStatus.SUCCESSFUL);
-                }
-                else if (payment.getPaymentType() == PaymentType.INSTALLMENT ||
-                        payment.getPaymentType() == PaymentType.SUBSCRIPTION) {
-                    // Mark the first payment (down payment) as done
-                    payment.setCompletedPayments(1);
-                    payment.setStatus(PaymentStatus.ACTIVE);
-                }
-
-                // Save the changes
-                payment = paymentRepository.save(payment);
-                returnMessage = "Payment confirmed successful and updated.";
-            } else {
-                // OnePipe says it is still pending or failed
-                returnMessage = "Payment status checked: " + response.getStatus();
-            }
-        }
-
-        // 5. Return the Clean DTO (Fixes the ByteBuddy/Serialization error)
-        return OnePipeQueryResponse.builder()
-                .transactionRef(payment.getTransactionRef())
-                .requestRef(payment.getRequestRef())
-                .onePipePaymentId(payment.getOnePipePaymentId())
-                .status(payment.getStatus().name())
-                .message(returnMessage)
-                .build();
+        return reconciliation.query(onePipeId);
     }
 
     private void validateNoExistingSchoolFeesPayment(Student student) {
@@ -533,43 +428,46 @@ public class PaymentService {
         );
 
         if (existingPayment.isPresent()) {
-            Payment payment = existingPayment.get();
-            throw new RuntimeException(
-                    String.format("Student '%s %s' already has a %s school fees payment (ID: %s). " +
-                                    "Complete or cancel it before creating a new one.",
-                            student.getFirstName(),
-                            student.getSurname(),
-                            payment.getStatus().name().toLowerCase(),
-                            payment.getOnePipePaymentId())
-            );
+            throw new ResourceConflictException("An ongoing school fees payment prevents this operation");
         }
     }
 
         @Transactional
         public void updatePaymentPlan(Long studentId, SwitchPlanRequest request) {
-            Student student = studentRepository.findById(studentId)
-                    .orElseThrow(() -> new RuntimeException("Student not found"));
+            Student student = authorization.ownStudent(studentId);
+            inputValidation.validate(request);
+            calculator.validatePlan(request.getNewPaymentType(), request.getFrequency(), request.getNumberOfInstallments());
+            if (request.getNewPaymentType() == PaymentType.INSTALLMENT) {
+                calculator.installments(schoolFees.feeFor(student.getClassGrade()), request.getNumberOfInstallments());
+            }
 
             boolean hasActiveOrPending = paymentRepository.findByStudent(student).stream()
                     .filter(p -> p.getCategory() == PaymentCategory.SCHOOL_FEES)
                     .anyMatch(p -> p.getStatus() == PaymentStatus.PENDING || p.getStatus() == PaymentStatus.ACTIVE);
 
             if (hasActiveOrPending) {
-                throw new RuntimeException("Cannot switch plan. Student has a Pending or Active School Fee.");
+                throw new ResourceConflictException("An ongoing school fees payment prevents this operation");
             }
 
             if (request.getNewPaymentType() == PaymentType.INSTALLMENT ||
                     request.getNewPaymentType() == PaymentType.SUBSCRIPTION) {
 
-                if (request.getBankAccountNumber() != null && request.getBankCode() != null) {
+                boolean suppliedAccount = request.getBankAccountNumber() != null;
+                boolean suppliedCode = request.getBankCode() != null;
+                if (suppliedAccount != suppliedCode || (suppliedAccount && (request.getBankAccountNumber().isBlank()
+                        || request.getBankCode().isBlank()))) {
+                    throw new InvalidPaymentException("Both nonblank banking fields are required");
+                }
+                if (suppliedAccount) {
                     Parent parent = student.getParent();
                     parent.setBankAccountNumber(request.getBankAccountNumber());
                     parent.setBankCode(request.getBankCode());
 
                     parentRepository.save(parent);
                 } else {
-                    if (student.getParent().getBankAccountNumber() == null) {
-                        throw new RuntimeException("Bank Account details are required to switch to this plan.");
+                    if (student.getParent().getBankAccountNumber() == null || student.getParent().getBankAccountNumber().isBlank()
+                            || student.getParent().getBankCode() == null || student.getParent().getBankCode().isBlank()) {
+                        throw new InvalidPaymentException("Bank details are required to switch to this plan");
                     }
                 }
             }
@@ -578,6 +476,9 @@ public class PaymentService {
             if (request.getNewPaymentType() == PaymentType.INSTALLMENT) {
                 student.setInstallmentFrequency(request.getFrequency());
                 student.setNumberOfInstallments(request.getNumberOfInstallments());
+            } else if (request.getNewPaymentType() == PaymentType.SUBSCRIPTION) {
+                student.setInstallmentFrequency(request.getFrequency());
+                student.setNumberOfInstallments(null);
             } else {
                 student.setInstallmentFrequency(null);
                 student.setNumberOfInstallments(null);

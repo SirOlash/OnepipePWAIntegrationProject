@@ -6,12 +6,20 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class OnePipeResponse {
+    // Offline mock diagnostics in provider units, not new OnePipe request fields.
+    private BigDecimal amountInKobo;
+    private BigDecimal downPaymentInKobo;
+    private String repeatFrequency;
+    private String repeatStartDate;
+    private String repeatEndDate;
+    private Integer numberOfPayments;
     private String virtualAccountNumber;
     private String virtualAccountBankName;
     private String virtualAccountName;

@@ -13,6 +13,7 @@ import java.util.Optional;
 public interface StudentRepository extends JpaRepository<Student, Long> {
     List<Student> findByParent(Parent parent);
     List<Student> findByBranch(Branch branch);
+    List<Student> findByBranchAndParent_User_EmailIgnoreCase(Branch branch, String email);
     Optional<Student> findByStudentRegId(String studentRegId);
 
 }
