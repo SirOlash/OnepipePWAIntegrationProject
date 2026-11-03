@@ -54,6 +54,7 @@ public class EnvironmentConfiguration {
             }
 
             if ("hosted".equals(profile)) {
+                CorsPolicyConfiguration.allowedOrigins(environment);
                 validateHosted();
             } else {
                 validateH2(profile);

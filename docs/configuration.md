@@ -39,6 +39,42 @@ public super-admin password is supplied. Other profiles and real mode never
 register it, and the processor rechecks the environment and database role on
 every invocation. See [simulation usage](payment-events.md#development-only-simulation).
 
+## CORS
+
+Dev and test accept browser requests only from these exact origins:
+
+- `http://localhost:5173`
+- `http://127.0.0.1:5173`
+
+Hosted requires `CORS_ALLOWED_ORIGINS` with one or more comma-separated exact
+HTTP or HTTPS origins, each containing a host and an optional valid port. The
+hosted property is `app.cors.allowed-origins`; its empty placeholder default is
+rejected by validation. It must match the environment allowlist; a separate
+property override cannot replace that list. For the intended hosted frontend, set:
+
+```powershell
+$env:CORS_ALLOWED_ORIGINS = 'https://greenfieldboardingschool.vercel.app'
+```
+
+This example configures only that origin; other Vercel projects, preview URLs and
+subdomains are not implicitly trusted. To permit another frontend, add its exact
+origin explicitly. When running the hosted profile against local PostgreSQL with
+a local frontend, use `http://localhost:5173` or `http://127.0.0.1:5173` explicitly
+instead. The hosted profile does not inherit the dev/test localhost allowlist.
+
+Startup fails if the hosted value is absent, empty or malformed. Wildcards,
+blank list entries, non-HTTP(S) schemes, user information, paths (including a
+trailing slash), query strings and fragments are rejected. Supply origins such
+as `https://example.invalid`, not a full application URL. There is no hosted
+allowlist fallback. Do not set `*` or a wildcard Vercel domain.
+
+The existing methods `GET`, `POST`, `PUT`, `DELETE` and `OPTIONS`, and request
+headers `Authorization` and `Content-Type`, remain supported. Preflight requests
+are checked before authentication; actual API calls still require the existing
+JWT and role/resource permissions. The frontend sends Bearer tokens rather than
+session cookies, so `Access-Control-Allow-Credentials` is not enabled. CORS is a
+browser policy, not a substitute for API authentication or authorization.
+
 ## Local development
 
 Use Java 17 and Maven. First set `JWT_SECRET` privately using the
@@ -119,6 +155,7 @@ requires all of these private environment settings:
 | `DB_USERNAME` | A nonblank database username |
 | `DB_PASSWORD` | A nonblank database password |
 | `JWT_SECRET` | A private Base64 signing key containing at least 32 random bytes |
+| `CORS_ALLOWED_ORIGINS` | Required comma-separated exact HTTP/HTTPS frontend origins; see [CORS](#cors) for validation rules |
 | `PORT` | Optional HTTP port; defaults to `8080` |
 
 No JDBC URL or database credential has a fallback. The driver is fixed to

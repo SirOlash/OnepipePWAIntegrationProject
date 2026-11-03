@@ -302,6 +302,7 @@ class PostgreSqlMigrationIntegrationTest {
         properties.put("DB_USERNAME", username);
         properties.put("DB_PASSWORD", password);
         properties.put("JWT_SECRET", Base64.getEncoder().encodeToString(signingKey));
+        properties.put("CORS_ALLOWED_ORIGINS", "https://greenfieldboardingschool.vercel.app");
         properties.put("app.demo.seed.enabled", "false");
         properties.put("app.demo.payments.simulation.enabled", "false");
         properties.put("server.address", "127.0.0.1");

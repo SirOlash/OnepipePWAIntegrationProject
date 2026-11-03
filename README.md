@@ -97,6 +97,10 @@ rejection-only route; it cannot enter the guarded simulated collection processor
 ## Security and limitations
 
 - JWT signing requires a privately supplied key; no shared signing key is bundled.
+- CORS uses exact allowed origins. Dev and test allow only
+  `http://localhost:5173` and `http://127.0.0.1:5173`; hosted requires the explicit
+  `CORS_ALLOWED_ORIGINS` allowlist and rejects missing or invalid configuration.
+  Browser requests use JWT Authorization headers; credentialed CORS is disabled.
 - Demo seeding is disabled by default and restricted to `dev`. Explicit opt-in
   requires private credentials. Initialization is transactional, preserves
   existing passwords and roles, and rejects conflicting identities or ownership.
@@ -124,8 +128,8 @@ rejection-only route; it cannot enter the guarded simulated collection processor
 This internship prototype is not a production payment system. The authorization
 checks do not establish production payment integrity. Real webhook verification
 and trusted bank reconciliation remain unavailable. Offline lifecycle handling
-does not verify real money movement. Public contact verification, rate limiting,
-token revocation and restrictive CORS remain separate work. See the
+does not verify real money movement. Public contact verification, rate limiting
+and token revocation remain separate work. See the
 [authorization policy and frontend implications](docs/authorization.md).
 
 ## API endpoints
@@ -314,6 +318,7 @@ See [verified authorization coverage](docs/authorization.md#verification).
 | `DB_URL` | PostgreSQL JDBC URL with the database's required connection options; no fallback | `hosted` |
 | `DB_USERNAME` | Privately supplied database username; no fallback | `hosted` |
 | `DB_PASSWORD` | Privately supplied database password; no fallback | `hosted` |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated exact HTTP/HTTPS origins; no default, wildcards or URL paths. Intended frontend: `https://greenfieldboardingschool.vercel.app` | `hosted` |
 | `DEMO_SEED_ENABLED` | Explicit dev-only opt-in; defaults to `false`; hosted ignores it | Optional |
 | `SUPER_ADMIN_EMAIL` | Stable, supplied super-admin identity | Enabled dev seeding |
 | `SUPER_ADMIN_PASSWORD` | Supplied private super-admin password; never rotates an existing password | Enabled dev seeding |
@@ -338,7 +343,10 @@ deployment needs its own database and configuration. No working live-money
 integration or currently verified hosted URL is claimed here.
 
 The `hosted` profile reads a host-provided `PORT`, binds to `0.0.0.0` and uses
-environment-backed PostgreSQL settings. This prepares application configuration
+environment-backed PostgreSQL settings. It also requires `CORS_ALLOWED_ORIGINS`,
+for example `https://greenfieldboardingschool.vercel.app`; it does not allow other
+Vercel subdomains automatically. See [CORS configuration](docs/configuration.md#cors).
+This prepares application configuration
 for a future hosted mock demo, including Render. No database was provisioned,
 deployment changed or hosted connection verified as part of this configuration
 work.

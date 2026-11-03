@@ -202,6 +202,21 @@ class EnvironmentConfigurationTest {
         });
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"*", "https://*.vercel.app", "https://example.invalid/",
+            "https://example.invalid/path", "https://example.invalid,", "https://example.invalid:65536"})
+    void hostedRejectsUnsafeCorsBeforeDatasourceInitialization(String origins) {
+        Map<String, String> settings = hostedSettings();
+        settings.put("CORS_ALLOWED_ORIGINS", origins);
+        hostedRunner(settings).withBean(DataSource.class, () -> {
+            throw new AssertionError("Datasource initialization must not run for an unsafe CORS allowlist");
+        }).run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure()).isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("CORS_ALLOWED_ORIGINS").hasMessageNotContaining(origins).hasNoCause();
+        });
+    }
+
     @Test
     void unresolvedHostedPlaceholdersAreReportedWithoutTheirConfiguredValues() {
         String marker = "test-only-" + UUID.randomUUID();
@@ -325,6 +340,7 @@ class EnvironmentConfigurationTest {
         settings.put("DB_URL", "jdbc:postgresql://postgres.example.invalid:5432/greenfield_demo");
         settings.put("DB_USERNAME", "test-only-" + UUID.randomUUID());
         settings.put("DB_PASSWORD", UUID.randomUUID().toString());
+        settings.put("CORS_ALLOWED_ORIGINS", "https://greenfieldboardingschool.vercel.app");
         settings.put("JWT_SECRET", Base64.getEncoder().encodeToString(UUID.randomUUID().toString().getBytes(
                 java.nio.charset.StandardCharsets.UTF_8)));
         return settings;
@@ -339,7 +355,7 @@ class EnvironmentConfigurationTest {
     }
 
     private static Stream<Arguments> missingOrBlankHostedSettings() {
-        return Stream.of("DB_URL", "DB_USERNAME", "DB_PASSWORD", "JWT_SECRET")
+        return Stream.of("DB_URL", "DB_USERNAME", "DB_PASSWORD", "JWT_SECRET", "CORS_ALLOWED_ORIGINS")
                 .flatMap(name -> Stream.of(Arguments.of(name, null), Arguments.of(name, ""), Arguments.of(name, " \t ")));
     }
 

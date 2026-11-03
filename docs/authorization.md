@@ -89,7 +89,7 @@ The hardcoded branch fallback still needs a separate frontend change.
 
 Public new-parent signup does not verify ownership of a previously unregistered
 email or phone. No incomplete OTP scheme is added. Rate limiting, contact
-verification, token revocation, restrictive CORS and real webhook verification
+verification, token revocation and real webhook verification
 remain separate work. Task 7 provides durable idempotency and collection-derived
 states for simulated confirmations, while Task 8 lifecycle reconciliation remains
 pending.
@@ -98,6 +98,9 @@ authoritative verification is available. The collection ledger confirms only
 simulated events through the guarded dev mechanism; this policy does not
 establish production payment integrity.
 No production readiness, hosted deployment or PostgreSQL verification is claimed.
+Browser CORS uses an exact-origin allowlist with mandatory hosted configuration;
+see [CORS configuration](configuration.md#cors). This does not replace the JWT,
+role and resource-ownership checks described above.
 
 ## Verification
 

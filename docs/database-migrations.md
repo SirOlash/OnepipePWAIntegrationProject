@@ -119,18 +119,27 @@ $env:DB_USERNAME = 'greenfield_local'
 $jwtBytes = New-Object byte[] 32
 [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($jwtBytes)
 $env:JWT_SECRET = [Convert]::ToBase64String($jwtBytes)
+$env:CORS_ALLOWED_ORIGINS = 'http://localhost:5173,http://127.0.0.1:5173'
 $env:SPRING_PROFILES_ACTIVE = 'hosted'
 mvn spring-boot:run "-Dspring-boot.run.arguments=--server.address=127.0.0.1"
 ```
 
 JWT configuration requires Base64 encoding of at least 32 random bytes. Keep a
 private stable key between runs if existing tokens should remain valid. The
-application requires `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` and `JWT_SECRET`;
+application requires `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `JWT_SECRET` and
+`CORS_ALLOWED_ORIGINS`;
 `DB_URL` must be a PostgreSQL JDBC URL, with any appropriate connection/SSL options.
 There are no database or credential fallbacks. No OnePipe settings are required
 in hosted mock mode. Automatic account seeding and payment simulation are absent
 from hosted mode, so a fresh application has no demo login credentials or
 automatically confirmed collections.
+
+The example allowlist permits only the two local frontend origins. For the
+intended hosted frontend, set `CORS_ALLOWED_ORIGINS` to
+`https://greenfieldboardingschool.vercel.app` instead. Hosted startup rejects
+missing, empty or malformed allowlists, including wildcards; see
+[CORS configuration](configuration.md#cors) for the exact-origin rules. No Render
+settings are changed by these local commands.
 
 Successful startup logs show Flyway applying V1, then JPA entity-manager
 initialization. Hibernate only validates. Stop and start the application again
